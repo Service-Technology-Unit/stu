@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xmlns:aop="http://www.springframework.org/schema/aop" xmlns:context="http://www.springframework.org/schema/context"
+       xmlns:tx="http://www.springframework.org/schema/tx"
+       xsi:schemaLocation="http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans-2.5.xsd
+            http://www.springframework.org/schema/context http://www.springframework.org/schema/context/spring-context-2.5.xsd
+            http://www.springframework.org/schema/aop http://www.springframework.org/schema/aop/spring-aop-2.5.xsd
+            http://www.springframework.org/schema/tx http://www.springframework.org/schema/tx/spring-tx-2.5.xsd">
+
+    <context:property-placeholder location="classpath*:batch.properties"/>
+
+    <bean id="batchJobService" class="edu.ucdavis.ucdhs.isweb.core.utils.BatchJobService">
+        <constructor-arg value="${batch.job.service.server.url}"></constructor-arg>
+    </bean>
+
+    <bean id="appName" class="java.lang.String">
+        <constructor-arg value="${batch.job.app.id}"></constructor-arg>
+    </bean>
+    
+    <bean id="jobName" class="java.lang.String">
+        <constructor-arg value="${batch.job.name}"></constructor-arg>
+    </bean>
+    
+    <bean id="schlName" class="java.lang.String">
+        <constructor-arg value="${batch.job.schedule.name}"></constructor-arg>
+    </bean>
+
+    <bean id="statisticUtils" class="edu.ucdavis.ucdhs.itoc.appstat.utils.StatisticUtils" scope="singleton">
+    </bean>
+
+    <bean id="statisticPostUtils" class="edu.ucdavis.ucdhs.itoc.appstat.utils.StatisticPostUtils" scope="singleton">
+        <property name="serviceEndPoint" value="${statistics.service.end.point}"/>
+    </bean>
+
+    <bean id="smDataSource" class="org.apache.commons.dbcp.BasicDataSource" destroy-method="close">
+        <property name="driverClassName"   value="${servicemanager.jdbc.driver}"/>
+        <property name="url"               value="${servicemanager.database.url}"/>
+        <property name="username"          value="${servicemanager.database.username}"/>
+        <property name="password"          value="${servicemanager.database.password}"/>
+        <property name="maxActive"         value="30"/>
+        <property name="maxIdle"           value="10"/>
+        <property name="maxWait"           value="1000"/>
+        <property name="defaultAutoCommit" value="true"/>
+    </bean>
+
+    <bean id="utilDataSource" class="org.apache.commons.dbcp.BasicDataSource" destroy-method="close">
+        <property name="driverClassName"   value="${util.jdbc.driver}"/>
+        <property name="url"               value="${util.database.url}"/>
+        <property name="username"          value="${util.database.username}"/>
+        <property name="password"          value="${util.database.password}"/>
+        <property name="maxActive"         value="30"/>
+        <property name="maxIdle"           value="10"/>
+        <property name="maxWait"           value="1000"/>
+        <property name="defaultAutoCommit" value="true"/>
+    </bean>
+
+    <bean id="projectDataSource" class="org.apache.commons.dbcp.BasicDataSource" destroy-method="close">
+        <property name="driverClassName"   value="${project.jdbc.driver}"/>
+        <property name="url"               value="${project.database.url}"/>
+        <property name="username"          value="${project.database.username}"/>
+        <property name="password"          value="${project.database.password}"/>
+        <property name="maxActive"         value="30"/>
+        <property name="maxIdle"           value="10"/>
+        <property name="maxWait"           value="1000"/>
+        <property name="defaultAutoCommit" value="true"/>
+    </bean>
+
+    <bean id="application" class="edu.ucdavis.ucdhs.itoc.sm.batch.ApplicationStatisticsPost">
+        <property name="statisticUtils"     ref="statisticUtils"/>
+        <property name="statisticPostUtils" ref="statisticPostUtils"/>
+        <property name="smDataSource"       ref="smDataSource"/>
+        <property name="utilDataSource"     ref="utilDataSource"/>
+        <property name="projectDataSource"  ref="projectDataSource"/>
+    </bean>
+
+</beans>

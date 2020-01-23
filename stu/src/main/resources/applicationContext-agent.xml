@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xmlns:aop="http://www.springframework.org/schema/aop" xmlns:context="http://www.springframework.org/schema/context"
+       xmlns:tx="http://www.springframework.org/schema/tx"
+       xsi:schemaLocation="http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans-2.5.xsd
+            http://www.springframework.org/schema/context http://www.springframework.org/schema/context/spring-context-2.5.xsd
+            http://www.springframework.org/schema/aop http://www.springframework.org/schema/aop/spring-aop-2.5.xsd
+            http://www.springframework.org/schema/tx http://www.springframework.org/schema/tx/spring-tx-2.5.xsd">
+
+    <context:property-placeholder location="classpath*:batch.properties"/>
+
+    <bean id="batchJobService" class="edu.ucdavis.ucdhs.isweb.core.utils.BatchJobService">
+        <constructor-arg value="${batch.job.service.server.url}"></constructor-arg>
+    </bean>
+
+    <bean id="appName" class="java.lang.String">
+        <constructor-arg value="${batch.job.app.id}"></constructor-arg>
+    </bean>
+    
+    <bean id="jobName" class="java.lang.String">
+        <constructor-arg value="${batch.job.name}"></constructor-arg>
+    </bean>
+    
+    <bean id="schlName" class="java.lang.String">
+        <constructor-arg value="${batch.job.schedule.name}"></constructor-arg>
+    </bean>
+
+    <bean id="application" class="edu.ucdavis.ucdhs.itoc.sm.batch.DailyAgentStatistics">
+        <property name="jdbcDriverName"  value="${jdbc.driverClassName}"/>
+        <property name="dbURL"           value="${jdbc.url}"/>
+        <property name="dbUser"          value="${jdbc.username}"/>
+        <property name="dbPassword"      value="${jdbc.password}"/>
+        <property name="jdbcDriverName2" value="${jdbc.driverClassName.2}"/>
+        <property name="dbURL2"          value="${jdbc.url.2}"/>
+        <property name="dbUser2"         value="${jdbc.username.2}"/>
+        <property name="dbPassword2"     value="${jdbc.password.2}"/>
+        <property name="jdbcDriverName3" value="${jdbc.driverClassName.3}"/>
+        <property name="dbURL3"          value="${jdbc.url.3}"/>
+        <property name="dbUser3"         value="${jdbc.username.3}"/>
+        <property name="dbPassword3"     value="${jdbc.password.3}"/>
+        <property name="startDateString" value="${start.date}"/>
+        <property name="endDateString"   value="${end.date}"/>
+        <property name="targetRoot"      value="${target.root}"/>
+    </bean>
+
+</beans>

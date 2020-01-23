@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xmlns:aop="http://www.springframework.org/schema/aop" xmlns:context="http://www.springframework.org/schema/context"
+       xmlns:tx="http://www.springframework.org/schema/tx"
+       xsi:schemaLocation="http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans-2.5.xsd
+            http://www.springframework.org/schema/context http://www.springframework.org/schema/context/spring-context-2.5.xsd
+            http://www.springframework.org/schema/aop http://www.springframework.org/schema/aop/spring-aop-2.5.xsd
+            http://www.springframework.org/schema/tx http://www.springframework.org/schema/tx/spring-tx-2.5.xsd">
+
+    <context:property-placeholder location="classpath*:batch.properties"/>
+
+    <bean id="batchJobService" class="edu.ucdavis.ucdh.stu.core.utils.BatchJobService">
+        <constructor-arg value="${batch.job.service.server.url}"></constructor-arg>
+    </bean>
+
+    <bean id="appName" class="java.lang.String">
+        <constructor-arg value="${batch.job.app.id}"></constructor-arg>
+    </bean>
+    
+    <bean id="jobName" class="java.lang.String">
+        <constructor-arg value="${batch.job.name}"></constructor-arg>
+    </bean>
+    
+    <bean id="schlName" class="java.lang.String">
+        <constructor-arg value="${batch.job.schedule.name}"></constructor-arg>
+    </bean>
+    
+    <bean id="up2dateService" class="edu.ucdavis.ucdh.stu.up2date.service.Up2DateService">
+        <constructor-arg value="${up2date.service.url}"></constructor-arg>
+        <constructor-arg value="${up2date.max.concurrent.actions}"></constructor-arg>
+    </bean>
+
+    <bean id="srcDataSource" class="org.apache.commons.dbcp2.BasicDataSource" destroy-method="close">
+        <property name="driverClassName"   value="${src.jdbc.driver}"/>
+        <property name="url"               value="${src.database.url}"/>
+        <property name="username"          value="${src.database.username}"/>
+        <property name="password"          value="${src.database.password}"/>
+        <property name="maxTotal"          value="60"/>
+        <property name="maxIdle"           value="20"/>
+        <property name="maxWaitMillis"     value="2000"/>
+        <property name="defaultAutoCommit" value="true"/>
+    </bean>
+
+    <bean id="mstDataSource" class="org.apache.commons.dbcp2.BasicDataSource" destroy-method="close">
+        <property name="driverClassName"   value="${mst.jdbc.driver}"/>
+        <property name="url"               value="${mst.database.url}"/>
+        <property name="username"          value="${mst.database.username}"/>
+        <property name="password"          value="${mst.database.password}"/>
+        <property name="maxTotal"          value="60"/>
+        <property name="maxIdle"           value="20"/>
+        <property name="maxWaitMillis"     value="2000"/>
+        <property name="defaultAutoCommit" value="true"/>
+    </bean>
+
+    <bean id="application" class="edu.ucdavis.ucdh.stu.stu.batch.MasterRoomUpdate">
+        <property name="srcDataSource"       ref="srcDataSource"/>
+        <property name="mstDataSource"       ref="mstDataSource"/>
+        <property name="up2dateService"      ref="up2dateService"/>
+        <property name="publisherId"       value="${up2date.publisher.id}"/>
+    </bean>
+
+</beans>

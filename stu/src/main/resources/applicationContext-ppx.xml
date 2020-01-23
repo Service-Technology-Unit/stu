@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xmlns:aop="http://www.springframework.org/schema/aop" xmlns:context="http://www.springframework.org/schema/context"
+       xmlns:tx="http://www.springframework.org/schema/tx"
+       xsi:schemaLocation="http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans-2.5.xsd
+            http://www.springframework.org/schema/context http://www.springframework.org/schema/context/spring-context-2.5.xsd
+            http://www.springframework.org/schema/aop http://www.springframework.org/schema/aop/spring-aop-2.5.xsd
+            http://www.springframework.org/schema/tx http://www.springframework.org/schema/tx/spring-tx-2.5.xsd">
+
+    <context:property-placeholder location="classpath*:batch.properties"/>
+
+    <bean id="batchJobService" class="edu.ucdavis.ucdhs.isweb.core.utils.BatchJobService">
+        <constructor-arg value="${batch.job.service.server.url}"></constructor-arg>
+    </bean>
+
+    <bean id="appName" class="java.lang.String">
+        <constructor-arg value="${batch.job.app.id}"></constructor-arg>
+    </bean>
+    
+    <bean id="jobName" class="java.lang.String">
+        <constructor-arg value="${batch.job.name}"></constructor-arg>
+    </bean>
+    
+    <bean id="schlName" class="java.lang.String">
+        <constructor-arg value="${batch.job.schedule.name}"></constructor-arg>
+    </bean>
+    
+    <bean id="up2dateService" class="edu.ucdavis.ucdhs.itoc.up2date.service.Up2DateService">
+        <constructor-arg value="${up2date.service.url}"></constructor-arg>
+        <constructor-arg value="${up2date.max.concurrent.actions}"></constructor-arg>
+    </bean>
+
+    <bean id="application" class="edu.ucdavis.ucdhs.itoc.sm.batch.PollingPublisher">
+        <property name="srcDriver"    value="${source.system.jdbc.driver}"/>
+        <property name="srcURL"       value="${source.system.database.url}"/>
+        <property name="srcUser"      value="${source.system.database.username}"/>
+        <property name="srcPassword"  value="${source.system.database.password}"/>
+        <property name="logDriver"    value="${update.log.jdbc.driver}"/>
+        <property name="logURL"       value="${update.log.database.url}"/>
+        <property name="logUser"      value="${update.log.database.username}"/>
+        <property name="logPassword"  value="${update.log.database.password}"/>
+        <property name="publisherId"  value="${up2date.publisher.id}"/>
+        <property name="up2dateService" ref="up2dateService"/>
+    </bean>
+
+</beans>
+

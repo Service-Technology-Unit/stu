@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xmlns:aop="http://www.springframework.org/schema/aop" xmlns:context="http://www.springframework.org/schema/context"
+       xmlns:tx="http://www.springframework.org/schema/tx"
+       xsi:schemaLocation="http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans-2.5.xsd
+            http://www.springframework.org/schema/context http://www.springframework.org/schema/context/spring-context-2.5.xsd
+            http://www.springframework.org/schema/aop http://www.springframework.org/schema/aop/spring-aop-2.5.xsd
+            http://www.springframework.org/schema/tx http://www.springframework.org/schema/tx/spring-tx-2.5.xsd">
+
+    <context:property-placeholder location="classpath*:batch.properties"/>
+
+    <bean id="batchJobService" class="edu.ucdavis.ucdhs.isweb.core.utils.BatchJobService">
+        <constructor-arg value="${batch.job.service.server.url}"></constructor-arg>
+    </bean>
+
+    <bean id="appName" class="java.lang.String">
+        <constructor-arg value="${batch.job.app.id}"></constructor-arg>
+    </bean>
+    
+    <bean id="jobName" class="java.lang.String">
+        <constructor-arg value="${batch.job.name}"></constructor-arg>
+    </bean>
+    
+    <bean id="schlName" class="java.lang.String">
+        <constructor-arg value="${batch.job.schedule.name}"></constructor-arg>
+    </bean>
+
+    <bean id="application" class="edu.ucdavis.ucdhs.itoc.sm.batch.CardkeyUpdate">
+        <property name="smDriver"        value="${jdbc.driverClassName}"/>
+        <property name="smURL"           value="${jdbc.url}"/>
+        <property name="smUser"          value="${jdbc.username}"/>
+        <property name="smPassword"      value="${jdbc.password}"/>
+        <property name="ckDriver"        value="${cardkey.jdbc.driver}"/>
+        <property name="ckURL"           value="${cardkey.database.url}"/>
+        <property name="ckUser"          value="${cardkey.database.username}"/>
+        <property name="ckPassword"      value="${cardkey.database.password}"/>
+        <property name="ckServiceURL"    value="${cardkey.service.url}"/>
+    </bean>
+
+</beans>
