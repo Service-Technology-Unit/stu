@@ -5,8 +5,6 @@ import java.io.StringReader;
 import java.io.StringWriter;
 import java.io.Writer;
 import java.math.BigInteger;
-import java.security.cert.CertificateException;
-import java.security.cert.X509Certificate;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
@@ -16,9 +14,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import javax.net.ssl.SSLContext;
-import javax.net.ssl.TrustManager;
-import javax.net.ssl.X509TrustManager;
 import javax.sql.DataSource;
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
@@ -32,11 +27,8 @@ import org.apache.http.client.HttpClient;
 import org.apache.http.client.entity.UrlEncodedFormEntity;
 import org.apache.http.client.methods.HttpGet;
 import org.apache.http.client.methods.HttpPost;
-import org.apache.http.conn.ClientConnectionManager;
-import org.apache.http.conn.scheme.Scheme;
-import org.apache.http.conn.scheme.SchemeRegistry;
-import org.apache.http.conn.ssl.SSLSocketFactory;
-import org.apache.http.impl.client.DefaultHttpClient;
+import org.apache.http.conn.ssl.NoopHostnameVerifier;
+import org.apache.http.impl.client.HttpClients;
 import org.apache.http.message.BasicNameValuePair;
 import org.apache.http.util.EntityUtils;
 import org.w3c.dom.Document;
@@ -52,7 +44,7 @@ public class PerformanceMonitor implements SpringBatchJob {
 	private static final String INSERT_SQL = "INSERT INTO PM_HISTORY (SERVER_URL, DATE_TIME, CLIENT_SIDE_DURATION, SERVER_SIDE_DURATION, CLEAN_DURATION, INSERT_DURATION, READ_DURATION, UPDATE_DURATION, DELETE_DURATION) VALUES(?, GETDATE(), ?, ?, ?, ?, ?, ?, ?)";
 	private Log log = LogFactory.getLog(getClass().getName());
 	private Map<String,BigInteger> response = null;
-	private HttpClient client = new DefaultHttpClient();
+	private HttpClient client = HttpClients.custom().setSSLHostnameVerifier(new NoopHostnameVerifier()).build();
 	private DocumentBuilder db = null;
 	private Connection conn = null;
 	private long start = 0;
@@ -345,22 +337,7 @@ public class PerformanceMonitor implements SpringBatchJob {
 		parameters.add(new BasicNameValuePair("message", message));
 		parameters.add(new BasicNameValuePair("serverURL", serverURL));
 		try {
-			SSLContext ctx = SSLContext.getInstance("TLS");
-			X509TrustManager tm = new X509TrustManager() {
-				public void checkClientTrusted(X509Certificate[] xcs, String string) throws CertificateException {
-				}
-				public void checkServerTrusted(X509Certificate[] xcs, String string) throws CertificateException {
-				}
-				public X509Certificate[] getAcceptedIssuers() {
-					return null;
-				}
-			};
-			ctx.init(null, new TrustManager[]{tm}, null);
-			SSLSocketFactory ssf = new SSLSocketFactory(ctx, SSLSocketFactory.ALLOW_ALL_HOSTNAME_VERIFIER);
-			ClientConnectionManager ccm = client.getConnectionManager();
-			SchemeRegistry sr = ccm.getSchemeRegistry();
-			sr.register(new Scheme("https", 443, ssf));
-			client = new DefaultHttpClient(ccm, client.getParams());
+			client = HttpClients.custom().setSSLHostnameVerifier(new NoopHostnameVerifier()).build();
 			HttpPost post = new HttpPost(notificationService);
 			post.setEntity(new UrlEncodedFormEntity(parameters, "UTF-8"));
 			HttpResponse response = client.execute(post);

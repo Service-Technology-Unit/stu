@@ -1,17 +1,13 @@
 package edu.ucdavis.ucdh.stu.stu.servlets;
 
 import java.io.IOException;
-import java.security.cert.CertificateException;
-import java.security.cert.X509Certificate;
+import java.nio.charset.StandardCharsets;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 
-import javax.net.ssl.SSLContext;
-import javax.net.ssl.TrustManager;
-import javax.net.ssl.X509TrustManager;
 import javax.servlet.ServletConfig;
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletRequest;
@@ -25,14 +21,10 @@ import org.apache.http.auth.UsernamePasswordCredentials;
 import org.apache.http.client.HttpClient;
 import org.apache.http.client.methods.HttpGet;
 import org.apache.http.client.methods.HttpPut;
-import org.apache.http.conn.ClientConnectionManager;
-import org.apache.http.conn.scheme.Scheme;
-import org.apache.http.conn.scheme.SchemeRegistry;
-import org.apache.http.conn.scheme.SchemeSocketFactory;
-import org.apache.http.conn.ssl.SSLSocketFactory;
+import org.apache.http.conn.ssl.NoopHostnameVerifier;
 import org.apache.http.entity.StringEntity;
 import org.apache.http.impl.auth.BasicScheme;
-import org.apache.http.impl.client.DefaultHttpClient;
+import org.apache.http.impl.client.HttpClients;
 import org.apache.http.util.EntityUtils;
 import org.json.simple.JSONArray;
 import org.json.simple.JSONObject;
@@ -178,7 +170,6 @@ public class OnCallActivationServlet extends JavascriptServlet {
 				// create HttpPut
 				String url = serviceNowServer + UPDATE_URL + "/" + sysId;
 				HttpPut put = new HttpPut(url);
-				put.addHeader(BasicScheme.authenticate(new UsernamePasswordCredentials(serviceNowUser, serviceNowPassword), "UTF-8", false));
 				put.setHeader(HttpHeaders.ACCEPT, "application/json");
 				put.setHeader(HttpHeaders.CONTENT_TYPE, "application/json");
 
@@ -194,8 +185,9 @@ public class OnCallActivationServlet extends JavascriptServlet {
 
 				// put JSON
 				try {
+					put.addHeader(new BasicScheme(StandardCharsets.UTF_8).authenticate(new UsernamePasswordCredentials(serviceNowUser, serviceNowPassword), put, null));
 					put.setEntity(new StringEntity(updateData.toJSONString()));
-					HttpClient client = createHttpClient();
+					HttpClient client = HttpClients.custom().setSSLHostnameVerifier(new NoopHostnameVerifier()).build();
 					if (log.isDebugEnabled()) {
 						log.debug("Putting JSON update to " + url);
 					}
@@ -249,10 +241,10 @@ public class OnCallActivationServlet extends JavascriptServlet {
 		}
 		String url = serviceNowServer + FETCH_URL + group;
 		HttpGet get = new HttpGet(url);
-		get.addHeader(BasicScheme.authenticate(new UsernamePasswordCredentials(serviceNowUser, serviceNowPassword), "UTF-8", false));
-		get.setHeader(HttpHeaders.ACCEPT, "application/json");
 		try {
-			HttpClient client = createHttpClient();
+			get.addHeader(new BasicScheme(StandardCharsets.UTF_8).authenticate(new UsernamePasswordCredentials(serviceNowUser, serviceNowPassword), get, null));
+			get.setHeader(HttpHeaders.ACCEPT, "application/json");
+			HttpClient client = HttpClients.custom().setSSLHostnameVerifier(new NoopHostnameVerifier()).build();
 			if (log.isDebugEnabled()) {
 				log.debug("Fetching group data using url " + url);
 			}
@@ -326,38 +318,5 @@ public class OnCallActivationServlet extends JavascriptServlet {
 		json.put(RESPONSE, response);
 
 		return json;
-	}
-
-	/**
-	 * <p>Builds and returns an HTTPClient.</p>
-	 *
-	 * @return an HTTPClient
-	 */
-	private static HttpClient createHttpClient() {
-		DefaultHttpClient httpClient = new DefaultHttpClient();
-		try {
-			SSLContext ctx = SSLContext.getInstance("TLSv1.2");
-			X509TrustManager tm = new X509TrustManager(){
-
-				public void checkClientTrusted(X509Certificate[] xcs, String string) throws CertificateException {
-				}
-
-				public void checkServerTrusted(X509Certificate[] xcs, String string) throws CertificateException {
-				}
-
-				public X509Certificate[] getAcceptedIssuers() {
-					return null;
-				}
-			};
-			ctx.init(null, new TrustManager[]{tm}, null);
-			SSLSocketFactory ssf = new SSLSocketFactory(ctx, SSLSocketFactory.ALLOW_ALL_HOSTNAME_VERIFIER);
-			ClientConnectionManager ccm = httpClient.getConnectionManager();
-			SchemeRegistry sr = ccm.getSchemeRegistry();
-			sr.register(new Scheme("https", 443, (SchemeSocketFactory)ssf));
-			httpClient = new DefaultHttpClient(ccm, httpClient.getParams());
-		} catch (Exception e) {
-			System.out.println("Exception encountered: " + e.getClass().getName() + "; " + e.getMessage());
-		}
-		return httpClient;
 	}
 }

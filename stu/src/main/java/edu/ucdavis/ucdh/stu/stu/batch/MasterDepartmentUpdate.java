@@ -2,8 +2,6 @@ package edu.ucdavis.ucdh.stu.stu.batch;
 
 import java.math.BigInteger;
 import java.net.InetAddress;
-import java.security.cert.CertificateException;
-import java.security.cert.X509Certificate;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -18,9 +16,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 
-import javax.net.ssl.SSLContext;
-import javax.net.ssl.TrustManager;
-import javax.net.ssl.X509TrustManager;
 import javax.sql.DataSource;
 
 import org.apache.commons.lang.StringUtils;
@@ -30,11 +25,8 @@ import org.apache.http.HttpEntity;
 import org.apache.http.HttpResponse;
 import org.apache.http.client.HttpClient;
 import org.apache.http.client.methods.HttpGet;
-import org.apache.http.conn.ClientConnectionManager;
-import org.apache.http.conn.scheme.Scheme;
-import org.apache.http.conn.scheme.SchemeRegistry;
-import org.apache.http.conn.ssl.SSLSocketFactory;
-import org.apache.http.impl.client.DefaultHttpClient;
+import org.apache.http.conn.ssl.NoopHostnameVerifier;
+import org.apache.http.impl.client.HttpClients;
 import org.apache.http.util.EntityUtils;
 
 import edu.ucdavis.ucdh.stu.core.batch.SpringBatchJob;
@@ -182,7 +174,7 @@ public class MasterDepartmentUpdate implements SpringBatchJob {
 		}
 
 		// establish HTTP Client
-		client = createHttpClient();
+		client = HttpClients.custom().setSSLHostnameVerifier(new NoopHostnameVerifier()).build();
 
 		log.info(" ");
 		log.info("Run time properties validated.");
@@ -715,33 +707,6 @@ public class MasterDepartmentUpdate implements SpringBatchJob {
 		public boolean isActive() {
 			return active;
 		}
-	}
-	
-	private static HttpClient createHttpClient() {
-		HttpClient httpClient = new DefaultHttpClient();
-
-		try {
-			SSLContext ctx = SSLContext.getInstance("TLS");
-			X509TrustManager tm = new X509TrustManager() {
-				public void checkClientTrusted(X509Certificate[] xcs, String string) throws CertificateException {
-				}
-				public void checkServerTrusted(X509Certificate[] xcs, String string) throws CertificateException {
-				}
-				public X509Certificate[] getAcceptedIssuers() {
-					return null;
-				}
-			};
-			ctx.init(null, new TrustManager[]{tm}, null);
-			SSLSocketFactory ssf = new SSLSocketFactory(ctx, SSLSocketFactory.ALLOW_ALL_HOSTNAME_VERIFIER);
-			ClientConnectionManager ccm = httpClient.getConnectionManager();
-			SchemeRegistry sr = ccm.getSchemeRegistry();
-			sr.register(new Scheme("https", 443, ssf));
-			httpClient = new DefaultHttpClient(ccm, httpClient.getParams());
-		} catch (Exception e) {
-			LogFactory.getLog(MasterDepartmentUpdate.class).error("Exception encountered: " + e.getClass().getName() + "; " + e.getMessage(), e);
-		}
-
-		return httpClient;
 	}
 
 	private static boolean isEqual(String string1, String string2) {

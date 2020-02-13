@@ -1,11 +1,5 @@
 package edu.ucdavis.ucdh.stu.stu.servlets;
 
-import java.security.cert.CertificateException;
-import java.security.cert.X509Certificate;
-
-import javax.net.ssl.SSLContext;
-import javax.net.ssl.TrustManager;
-import javax.net.ssl.X509TrustManager;
 import javax.servlet.ServletConfig;
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletRequest;
@@ -15,11 +9,8 @@ import org.apache.commons.lang.StringUtils;
 import org.apache.http.HttpResponse;
 import org.apache.http.client.HttpClient;
 import org.apache.http.client.methods.HttpGet;
-import org.apache.http.conn.ClientConnectionManager;
-import org.apache.http.conn.scheme.Scheme;
-import org.apache.http.conn.scheme.SchemeRegistry;
-import org.apache.http.conn.ssl.SSLSocketFactory;
-import org.apache.http.impl.client.DefaultHttpClient;
+import org.apache.http.conn.ssl.NoopHostnameVerifier;
+import org.apache.http.impl.client.HttpClients;
 import org.apache.http.util.EntityUtils;
 import org.springframework.web.context.support.WebApplicationContextUtils;
 
@@ -95,27 +86,7 @@ public class CasTicketValidationServlet extends JavascriptServlet {
 	private String processURL(String url) {
 		String string = "";
 
-		HttpClient client = new DefaultHttpClient();
-		try {
-			SSLContext ctx = SSLContext.getInstance("TLS");
-			X509TrustManager tm = new X509TrustManager() {
-				public void checkClientTrusted(X509Certificate[] xcs, String string) throws CertificateException {
-				}
-				public void checkServerTrusted(X509Certificate[] xcs, String string) throws CertificateException {
-				}
-				public X509Certificate[] getAcceptedIssuers() {
-					return null;
-				}
-			};
-			ctx.init(null, new TrustManager[]{tm}, null);
-			SSLSocketFactory ssf = new SSLSocketFactory(ctx, SSLSocketFactory.ALLOW_ALL_HOSTNAME_VERIFIER);
-			ClientConnectionManager ccm = client.getConnectionManager();
-			SchemeRegistry sr = ccm.getSchemeRegistry();
-			sr.register(new Scheme("https", 443, ssf));
-			client = new DefaultHttpClient(ccm, client.getParams());
-		} catch (Exception e) {
-			log.error("Exception encountered: " + e.getClass().getName() + "; " + e.getMessage(), e);
-		}
+		HttpClient client = HttpClients.custom().setSSLHostnameVerifier(new NoopHostnameVerifier()).build();
 		try {
 			HttpGet get = new HttpGet(url);
 			HttpResponse response = client.execute(get);

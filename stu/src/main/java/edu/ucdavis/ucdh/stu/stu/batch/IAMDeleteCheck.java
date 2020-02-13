@@ -2,8 +2,6 @@ package edu.ucdavis.ucdh.stu.stu.batch;
 
 import java.math.BigInteger;
 import java.net.InetAddress;
-import java.security.cert.CertificateException;
-import java.security.cert.X509Certificate;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -14,9 +12,6 @@ import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 
-import javax.net.ssl.SSLContext;
-import javax.net.ssl.TrustManager;
-import javax.net.ssl.X509TrustManager;
 import javax.sql.DataSource;
 
 import org.apache.commons.lang.StringUtils;
@@ -28,11 +23,8 @@ import org.apache.http.NameValuePair;
 import org.apache.http.client.HttpClient;
 import org.apache.http.client.entity.UrlEncodedFormEntity;
 import org.apache.http.client.methods.HttpPost;
-import org.apache.http.conn.ClientConnectionManager;
-import org.apache.http.conn.scheme.Scheme;
-import org.apache.http.conn.scheme.SchemeRegistry;
-import org.apache.http.conn.ssl.SSLSocketFactory;
-import org.apache.http.impl.client.DefaultHttpClient;
+import org.apache.http.conn.ssl.NoopHostnameVerifier;
+import org.apache.http.impl.client.HttpClients;
 import org.apache.http.message.BasicNameValuePair;
 import org.apache.http.util.EntityUtils;
 
@@ -136,7 +128,7 @@ public class IAMDeleteCheck implements SpringBatchJob {
 		}
 
 		// establish HTTP Client
-		client = createHttpClient();
+		client = HttpClients.custom().setSSLHostnameVerifier(new NoopHostnameVerifier()).build();
 
 		// publish updates
 		if (deleted.size() > 0) {
@@ -331,33 +323,6 @@ public class IAMDeleteCheck implements SpringBatchJob {
 		} catch (Exception e) {
 			log.error("Exception encountered accessing URL " + up2dateService, e);
 		}
-	}
-
-	private HttpClient createHttpClient() {
-		HttpClient httpClient = new DefaultHttpClient();
-
-		try {
-			SSLContext ctx = SSLContext.getInstance("TLS");
-			X509TrustManager tm = new X509TrustManager() {
-				public void checkClientTrusted(X509Certificate[] xcs, String string) throws CertificateException {
-				}
-				public void checkServerTrusted(X509Certificate[] xcs, String string) throws CertificateException {
-				}
-				public X509Certificate[] getAcceptedIssuers() {
-					return null;
-				}
-			};
-			ctx.init(null, new TrustManager[]{tm}, null);
-			SSLSocketFactory ssf = new SSLSocketFactory(ctx, SSLSocketFactory.ALLOW_ALL_HOSTNAME_VERIFIER);
-			ClientConnectionManager ccm = httpClient.getConnectionManager();
-			SchemeRegistry sr = ccm.getSchemeRegistry();
-			sr.register(new Scheme("https", 443, ssf));
-			httpClient = new DefaultHttpClient(ccm, httpClient.getParams());
-		} catch (Exception e) {
-			log.error("Exception encountered: " + e.getClass().getName() + "; " + e.getMessage(), e);
-		}
-
-		return httpClient;
 	}
 
 	/**

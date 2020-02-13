@@ -1,11 +1,7 @@
 package edu.ucdavis.ucdh.stu.stu.servlets;
 
-import java.security.cert.CertificateException;
-import java.security.cert.X509Certificate;
+import java.nio.charset.StandardCharsets;
 
-import javax.net.ssl.SSLContext;
-import javax.net.ssl.TrustManager;
-import javax.net.ssl.X509TrustManager;
 import javax.servlet.ServletConfig;
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletRequest;
@@ -17,13 +13,10 @@ import org.apache.http.auth.UsernamePasswordCredentials;
 import org.apache.http.client.HttpClient;
 import org.apache.http.client.methods.HttpGet;
 import org.apache.http.client.methods.HttpPost;
-import org.apache.http.conn.ClientConnectionManager;
-import org.apache.http.conn.scheme.Scheme;
-import org.apache.http.conn.scheme.SchemeRegistry;
-import org.apache.http.conn.ssl.SSLSocketFactory;
+import org.apache.http.conn.ssl.NoopHostnameVerifier;
 import org.apache.http.entity.ByteArrayEntity;
 import org.apache.http.impl.auth.BasicScheme;
-import org.apache.http.impl.client.DefaultHttpClient;
+import org.apache.http.impl.client.HttpClients;
 import org.apache.http.util.EntityUtils;
 import org.springframework.web.context.support.WebApplicationContextUtils;
 
@@ -101,36 +94,14 @@ public class ServiceNowProxyServlet extends JavascriptServlet {
 			service = "/" + service;
 		}
 		String url = serviceEndPoint + service;
-		HttpClient client = new DefaultHttpClient();
-		if (url.startsWith("https")) {
-			try {
-				SSLContext ctx = SSLContext.getInstance("TLS");
-				X509TrustManager tm = new X509TrustManager() {
-					public void checkClientTrusted(X509Certificate[] xcs, String string) throws CertificateException {
-					}
-					public void checkServerTrusted(X509Certificate[] xcs, String string) throws CertificateException {
-					}
-					public X509Certificate[] getAcceptedIssuers() {
-						return null;
-					}
-				};
-				ctx.init(null, new TrustManager[]{tm}, null);
-				SSLSocketFactory ssf = new SSLSocketFactory(ctx, SSLSocketFactory.ALLOW_ALL_HOSTNAME_VERIFIER);
-				ClientConnectionManager ccm = client.getConnectionManager();
-				SchemeRegistry sr = ccm.getSchemeRegistry();
-				sr.register(new Scheme("https", 443, ssf));
-				client = new DefaultHttpClient(ccm, client.getParams());
-			} catch (Exception e) {
-				log.error("Exception encountered: " + e.getClass().getName() + "; " + e.getMessage(), e);
-			}
-		}
+		HttpClient client = new HttpClients.custom().setSSLHostnameVerifier(new NoopHostnameVerifier()).build();
 		if ("post".equalsIgnoreCase(method)) {
 			if (log.isDebugEnabled()) {
 				log.debug("Posting content to URL " + url + " on behalf of " + userDetails.getFirstName() + " " + userDetails.getLastName());
 			}
 			try {
 				HttpPost post = new HttpPost(url);
-				post.addHeader(BasicScheme.authenticate(new UsernamePasswordCredentials(serviceAccount, serviceCredentials), "UTF-8", false));
+				post.addHeader(new BasicScheme(StandardCharsets.UTF_8).authenticate(new UsernamePasswordCredentials(serviceAccount, serviceCredentials), post, null));
 				if (StringUtils.isNotEmpty(content)) {
 					post.setEntity(new ByteArrayEntity(content.getBytes("UTF-8")));
 				}
@@ -153,7 +124,7 @@ public class ServiceNowProxyServlet extends JavascriptServlet {
 			}
 			try {
 				HttpGet get = new HttpGet(url);
-				get.addHeader(BasicScheme.authenticate(new UsernamePasswordCredentials(serviceAccount, serviceCredentials), "UTF-8", false));
+				get.addHeader(new BasicScheme(StandardCharsets.UTF_8).authenticate(new UsernamePasswordCredentials(serviceAccount, serviceCredentials), get, null));
 				HttpResponse response = client.execute(get);
 				int rc = response.getStatusLine().getStatusCode();
 				if (rc == 200) {

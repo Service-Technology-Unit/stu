@@ -35,7 +35,8 @@ import org.apache.commons.logging.LogFactory;
 import org.apache.http.HttpResponse;
 import org.apache.http.client.HttpClient;
 import org.apache.http.client.methods.HttpGet;
-import org.apache.http.impl.client.DefaultHttpClient;
+import org.apache.http.conn.ssl.NoopHostnameVerifier;
+import org.apache.http.impl.client.HttpClients;
 import org.apache.http.util.EntityUtils;
 import org.w3c.dom.Document;
 import org.w3c.dom.NodeList;
@@ -62,7 +63,7 @@ public class LocationDataEmail implements SpringBatchJob {
 	private String csvData = "\"Building ID\",\"Building\",\"Asset Nr\",\"Floor Code\",\"Floor\",\"Suite\",\"Room\",\"Usage\",\"Cost Center Text\",\"Department\",\"Cost Center ID\",\"Cost Center Name\",\"Account ID\",\"Org ID\",\"Manager ID\",\"Manager\"" + LF;
 	private Map<String,Map<String,String>> cc = new HashMap<String,Map<String,String>>();
 	private Map<String,String> noCc = new HashMap<String,String>();
-	private HttpClient client = new DefaultHttpClient();
+	private HttpClient client = HttpClients.custom().setSSLHostnameVerifier(new NoopHostnameVerifier()).build();
 	private DocumentBuilder db = null;
 	private int readCt = 0;
 	private int writeCt = 0;
