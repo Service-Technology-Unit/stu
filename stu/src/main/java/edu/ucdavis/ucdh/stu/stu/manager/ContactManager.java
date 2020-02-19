@@ -15,14 +15,13 @@ import org.apache.http.HttpResponse;
 import org.apache.http.auth.UsernamePasswordCredentials;
 import org.apache.http.client.HttpClient;
 import org.apache.http.client.methods.HttpGet;
-import org.apache.http.conn.ssl.NoopHostnameVerifier;
 import org.apache.http.impl.auth.BasicScheme;
-import org.apache.http.impl.client.HttpClients;
 import org.apache.http.util.EntityUtils;
 import org.json.simple.JSONArray;
 import org.json.simple.JSONObject;
 import org.json.simple.JSONValue;
 
+import edu.ucdavis.ucdh.stu.core.utils.HttpClientProvider;
 import edu.ucdavis.ucdh.stu.snutil.beans.Event;
 import edu.ucdavis.ucdh.stu.snutil.util.EventService;
 import edu.ucdavis.ucdh.stu.stu.beans.Contact;
@@ -127,7 +126,7 @@ public class ContactManager {
 		try {
 			get.addHeader(new BasicScheme(StandardCharsets.UTF_8).authenticate(new UsernamePasswordCredentials(serviceNowUser, serviceNowPassword), get, null));
 			get.setHeader(HttpHeaders.ACCEPT, "application/json");
-			HttpClient client = HttpClients.custom().setSSLHostnameVerifier(new NoopHostnameVerifier()).build();
+			HttpClient client = HttpClientProvider.getClient();
 			if (log.isDebugEnabled()) {
 				log.debug("Fetching user data using url " + url);
 			}
@@ -189,7 +188,7 @@ public class ContactManager {
 		try {
 			get.addHeader(new BasicScheme(StandardCharsets.UTF_8).authenticate(new UsernamePasswordCredentials(serviceNowUser, serviceNowPassword), get, null));
 			get.setHeader(HttpHeaders.ACCEPT, "application/json");
-			HttpClient client = HttpClients.custom().setSSLHostnameVerifier(new NoopHostnameVerifier()).build();
+			HttpClient client = HttpClientProvider.getClient();
 			if (log.isDebugEnabled()) {
 				log.debug("Fetching user group data using url " + url);
 			}

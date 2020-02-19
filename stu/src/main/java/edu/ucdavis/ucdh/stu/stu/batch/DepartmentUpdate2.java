@@ -18,14 +18,13 @@ import org.apache.http.NameValuePair;
 import org.apache.http.client.HttpClient;
 import org.apache.http.client.entity.UrlEncodedFormEntity;
 import org.apache.http.client.methods.HttpPost;
-import org.apache.http.conn.ssl.NoopHostnameVerifier;
-import org.apache.http.impl.client.HttpClients;
 import org.apache.http.message.BasicNameValuePair;
 import org.apache.http.util.EntityUtils;
 
 import edu.ucdavis.ucdh.stu.core.batch.SpringBatchJob;
 import edu.ucdavis.ucdh.stu.core.utils.BatchJobService;
 import edu.ucdavis.ucdh.stu.core.utils.BatchJobServiceStatistic;
+import edu.ucdavis.ucdh.stu.core.utils.HttpClientProvider;
 
 /**
  * <p>Updates the Service Manager department list from the PeopleSoft department list.</p>
@@ -200,7 +199,11 @@ public class DepartmentUpdate2 implements SpringBatchJob {
 		smStmt.close();
 
 		// establish HTTP Client
-		client = HttpClients.custom().setSSLHostnameVerifier(new NoopHostnameVerifier()).build();
+		try {
+			client = HttpClientProvider.getClient();
+		} catch (Exception e) {
+			log.error("Unable to create HTTP client: " + e, e);
+		}
 
 		// insert new departments
 		if (activatePile.size() > 0) {

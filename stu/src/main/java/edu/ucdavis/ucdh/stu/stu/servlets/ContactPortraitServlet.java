@@ -24,11 +24,10 @@ import org.apache.commons.logging.LogFactory;
 import org.apache.http.HttpResponse;
 import org.apache.http.client.HttpClient;
 import org.apache.http.client.methods.HttpGet;
-import org.apache.http.conn.ssl.NoopHostnameVerifier;
-import org.apache.http.impl.client.HttpClients;
 import org.apache.http.util.EntityUtils;
 import org.springframework.web.context.support.WebApplicationContextUtils;
 
+import edu.ucdavis.ucdh.stu.core.utils.HttpClientProvider;
 import edu.ucdavis.ucdh.stu.stu.beans.Contact;
 
 /**
@@ -375,7 +374,7 @@ public class ContactPortraitServlet extends HttpServlet {
 			log.debug("Retrieving image from URL " + url);
 		}
 		try {
-			HttpClient client = HttpClients.custom().setSSLHostnameVerifier(new NoopHostnameVerifier()).build();
+			HttpClient client = HttpClientProvider.getClient();
 			HttpGet get = new HttpGet(url);
 			HttpResponse res = client.execute(get);
 			int responseCode = res.getStatusLine().getStatusCode();

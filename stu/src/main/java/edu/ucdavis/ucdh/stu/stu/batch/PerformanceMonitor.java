@@ -38,13 +38,14 @@ import org.xml.sax.InputSource;
 import edu.ucdavis.ucdh.stu.core.batch.SpringBatchJob;
 import edu.ucdavis.ucdh.stu.core.utils.BatchJobService;
 import edu.ucdavis.ucdh.stu.core.utils.BatchJobServiceStatistic;
+import edu.ucdavis.ucdh.stu.core.utils.HttpClientProvider;
 
 public class PerformanceMonitor implements SpringBatchJob {
 	private static final String PATH_TO_MONITOR = "/util/monitor.xml";
 	private static final String INSERT_SQL = "INSERT INTO PM_HISTORY (SERVER_URL, DATE_TIME, CLIENT_SIDE_DURATION, SERVER_SIDE_DURATION, CLEAN_DURATION, INSERT_DURATION, READ_DURATION, UPDATE_DURATION, DELETE_DURATION) VALUES(?, GETDATE(), ?, ?, ?, ?, ?, ?, ?)";
 	private Log log = LogFactory.getLog(getClass().getName());
 	private Map<String,BigInteger> response = null;
-	private HttpClient client = HttpClients.custom().setSSLHostnameVerifier(new NoopHostnameVerifier()).build();
+	private HttpClient client = null;
 	private DocumentBuilder db = null;
 	private Connection conn = null;
 	private long start = 0;
@@ -139,6 +140,12 @@ public class PerformanceMonitor implements SpringBatchJob {
 			} else {
 				log.info("alertThreshold = " + maxServerSideDuration);
 			}
+		}
+		// verify HTTP client
+		try {
+			client = HttpClientProvider.getClient();
+		} catch (Exception e) {
+			throw new IllegalArgumentException("Unable to create HTTP client: " + e, e);
 		}
 		log.info(" ");
 		log.info("Run time properties validated.");

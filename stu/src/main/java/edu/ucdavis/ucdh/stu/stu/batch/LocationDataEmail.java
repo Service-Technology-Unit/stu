@@ -35,8 +35,6 @@ import org.apache.commons.logging.LogFactory;
 import org.apache.http.HttpResponse;
 import org.apache.http.client.HttpClient;
 import org.apache.http.client.methods.HttpGet;
-import org.apache.http.conn.ssl.NoopHostnameVerifier;
-import org.apache.http.impl.client.HttpClients;
 import org.apache.http.util.EntityUtils;
 import org.w3c.dom.Document;
 import org.w3c.dom.NodeList;
@@ -45,6 +43,7 @@ import org.xml.sax.InputSource;
 import edu.ucdavis.ucdh.stu.core.batch.SpringBatchJob;
 import edu.ucdavis.ucdh.stu.core.utils.BatchJobService;
 import edu.ucdavis.ucdh.stu.core.utils.BatchJobServiceStatistic;
+import edu.ucdavis.ucdh.stu.core.utils.HttpClientProvider;
 
 public class LocationDataEmail implements SpringBatchJob {
 	private static final String SQL = "select Bldg.UCDHS_Bldg_Num, Bldg.Primary_Display_Name, Bldg.Asset_Number, Floor.Floor_Code, Floor.Floor_Name, Suite, Space, Room_Share_Use_Name, Dept.cost_center, Dept.dept_name from DeptRoom left outer join Dept on Dept.Space_Acctng_Dept_Key=DeptRoom.Space_Acctng_Dept_Key left outer join Room on Room.Bldg_Key=DeptRoom.Bldg_Key and Room.Floor_Key=DeptRoom.Floor_Key and Room.Room_Key=DeptRoom.Room_Key left outer join Floor on Floor.Bldg_Key=DeptRoom.Bldg_Key and Floor.Floor_Key=DeptRoom.Floor_Key left outer join Building as Bldg on Bldg.Bldg_Key=DeptRoom.Bldg_Key where Dept.cost_center > '' and Bldg.UCDHS_Bldg_Num > '' order by Bldg.UCDHS_Bldg_Num, Floor.Floor_Order, Space, Dept.cost_center";
@@ -63,7 +62,7 @@ public class LocationDataEmail implements SpringBatchJob {
 	private String csvData = "\"Building ID\",\"Building\",\"Asset Nr\",\"Floor Code\",\"Floor\",\"Suite\",\"Room\",\"Usage\",\"Cost Center Text\",\"Department\",\"Cost Center ID\",\"Cost Center Name\",\"Account ID\",\"Org ID\",\"Manager ID\",\"Manager\"" + LF;
 	private Map<String,Map<String,String>> cc = new HashMap<String,Map<String,String>>();
 	private Map<String,String> noCc = new HashMap<String,String>();
-	private HttpClient client = HttpClients.custom().setSSLHostnameVerifier(new NoopHostnameVerifier()).build();
+	private HttpClient client = null;
 	private DocumentBuilder db = null;
 	private int readCt = 0;
 	private int writeCt = 0;
@@ -139,6 +138,13 @@ public class LocationDataEmail implements SpringBatchJob {
 		// initialize owner list
 		for (int i=0; i<OWNERS.length; i++) {
 			validOwners.add(OWNERS[i]);
+		}
+
+		// establish HTTP Client
+		try {
+			client = HttpClientProvider.getClient();
+		} catch (Exception e) {
+			log.error("Unable to create HTTP client: " + e, e);
 		}
 
 		// fetch input data

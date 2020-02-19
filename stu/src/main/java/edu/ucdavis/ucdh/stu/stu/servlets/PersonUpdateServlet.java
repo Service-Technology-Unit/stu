@@ -33,16 +33,15 @@ import org.apache.http.auth.UsernamePasswordCredentials;
 import org.apache.http.client.HttpClient;
 import org.apache.http.client.methods.HttpGet;
 import org.apache.http.client.methods.HttpPut;
-import org.apache.http.conn.ssl.NoopHostnameVerifier;
 import org.apache.http.entity.StringEntity;
 import org.apache.http.impl.auth.BasicScheme;
-import org.apache.http.impl.client.HttpClients;
 import org.apache.http.util.EntityUtils;
 import org.json.simple.JSONArray;
 import org.json.simple.JSONObject;
 import org.json.simple.JSONValue;
 import org.springframework.web.context.support.WebApplicationContextUtils;
 
+import edu.ucdavis.ucdh.stu.core.utils.HttpClientProvider;
 import edu.ucdavis.ucdh.stu.snutil.beans.Event;
 import edu.ucdavis.ucdh.stu.snutil.servlets.SubscriberServlet;
 import edu.ucdavis.ucdh.stu.up2date.beans.Update;
@@ -1227,7 +1226,7 @@ public class PersonUpdateServlet extends SubscriberServlet {
 		try {
 			get.addHeader(new BasicScheme(StandardCharsets.UTF_8).authenticate(new UsernamePasswordCredentials(serviceNowUser, serviceNowPassword), get, null));
 			get.setHeader(HttpHeaders.ACCEPT, "application/json");
-			HttpClient client = new HttpClients.custom().setSSLHostnameVerifier(new NoopHostnameVerifier()).build();
+			HttpClient client = HttpClientProvider.getClient();
 			if (log.isDebugEnabled()) {
 				log.debug("Fetching user data using url " + url);
 			}
@@ -1323,7 +1322,7 @@ public class PersonUpdateServlet extends SubscriberServlet {
 		get.setHeader(HttpHeaders.ACCEPT, "application/json");
 		try {
 			get.addHeader(new BasicScheme(StandardCharsets.UTF_8).authenticate(new UsernamePasswordCredentials(serviceNowUser, serviceNowPassword), get, null));
-			HttpClient client = new HttpClients.custom().setSSLHostnameVerifier(new NoopHostnameVerifier()).build();
+			HttpClient client = HttpClientProvider.getClient();
 			if (log.isDebugEnabled()) {
 				log.debug("Fetching user data using url " + url);
 			}
@@ -1407,7 +1406,7 @@ public class PersonUpdateServlet extends SubscriberServlet {
 		try {
 			put.addHeader(new BasicScheme(StandardCharsets.UTF_8).authenticate(new UsernamePasswordCredentials(serviceNowUser, serviceNowPassword), put, null));
 			put.setEntity(new StringEntity(updateData.toJSONString()));
-			HttpClient client = new HttpClients.custom().setSSLHostnameVerifier(new NoopHostnameVerifier()).build();
+			HttpClient client = HttpClientProvider.getClient();
 			if (log.isDebugEnabled()) {
 				log.debug("Putting JSON update to " + url);
 			}
@@ -1460,7 +1459,7 @@ public class PersonUpdateServlet extends SubscriberServlet {
 		// get JSON
 		try {
 			get.addHeader(new BasicScheme(StandardCharsets.UTF_8).authenticate(new UsernamePasswordCredentials(serviceNowUser, serviceNowPassword), get, null));
-			HttpClient client = new HttpClients.custom().setSSLHostnameVerifier(new NoopHostnameVerifier()).build();
+			HttpClient client = HttpClientProvider.getClient();
 			if (log.isDebugEnabled()) {
 				log.debug("Fetching User data from URL " + url);
 			}
@@ -1726,9 +1725,9 @@ public class PersonUpdateServlet extends SubscriberServlet {
 	private void verifyHsAdId(JSONObject thisId, JSONObject person, JSONObject details) {
 		thisId.put("IS_ACTIVE", "N");
 
-		HttpClient client = new HttpClients.custom().setSSLHostnameVerifier(new NoopHostnameVerifier()).build();
 		String url = "https://webtools.ucdmc.ucdavis.edu/hs/ldap/" + thisId.get("ID_VALUE");
 		try {
+			HttpClient client = HttpClientProvider.getClient();
 			HttpGet get = new HttpGet(url);
 			HttpResponse response = client.execute(get);
 			if (response.getStatusLine().getStatusCode() == 200) {
@@ -1757,9 +1756,9 @@ public class PersonUpdateServlet extends SubscriberServlet {
 	private void verifyKerberosId(JSONObject thisId, JSONObject person, JSONObject details) {
 		thisId.put("IS_ACTIVE", "N");
 
-		HttpClient client = HttpClients.custom().setSSLHostnameVerifier(new NoopHostnameVerifier()).build();
 		String url = "https://webtools.ucdmc.ucdavis.edu/hs/ldap2/" + thisId.get("ID_VALUE");
 		try {
+			HttpClient client = HttpClientProvider.getClient();
 			HttpGet get = new HttpGet(url);
 			HttpResponse response = client.execute(get);
 			if (response.getStatusLine().getStatusCode() == 200) {
@@ -1797,7 +1796,7 @@ public class PersonUpdateServlet extends SubscriberServlet {
 		get.setHeader(HttpHeaders.ACCEPT, "application/json");
 		try {
 			get.addHeader(new BasicScheme(StandardCharsets.UTF_8).authenticate(new UsernamePasswordCredentials(serviceNowUser, serviceNowPassword), get, null));
-			HttpClient client = new HttpClients.custom().setSSLHostnameVerifier(new NoopHostnameVerifier()).build();
+			HttpClient client = HttpClientProvider.getClient();
 			if (log.isDebugEnabled()) {
 				log.debug("Fetching external data using url " + url);
 			}

@@ -23,14 +23,13 @@ import org.apache.http.NameValuePair;
 import org.apache.http.client.HttpClient;
 import org.apache.http.client.entity.UrlEncodedFormEntity;
 import org.apache.http.client.methods.HttpPost;
-import org.apache.http.conn.ssl.NoopHostnameVerifier;
-import org.apache.http.impl.client.HttpClients;
 import org.apache.http.message.BasicNameValuePair;
 import org.apache.http.util.EntityUtils;
 
 import edu.ucdavis.ucdh.stu.core.batch.SpringBatchJob;
 import edu.ucdavis.ucdh.stu.core.utils.BatchJobService;
 import edu.ucdavis.ucdh.stu.core.utils.BatchJobServiceStatistic;
+import edu.ucdavis.ucdh.stu.core.utils.HttpClientProvider;
 
 /**
  * <p>Checks the IAM Person Repository to see if any of the records is the UCDH Person Repository are no longer there.</p>
@@ -128,7 +127,11 @@ public class IAMDeleteCheck implements SpringBatchJob {
 		}
 
 		// establish HTTP Client
-		client = HttpClients.custom().setSSLHostnameVerifier(new NoopHostnameVerifier()).build();
+		try {
+			client = HttpClientProvider.getClient();
+		} catch (Exception e) {
+			log.error("Unable to create HTTP client: " + e, e);
+		}
 
 		// publish updates
 		if (deleted.size() > 0) {

@@ -9,11 +9,10 @@ import org.apache.commons.lang.StringUtils;
 import org.apache.http.HttpResponse;
 import org.apache.http.client.HttpClient;
 import org.apache.http.client.methods.HttpGet;
-import org.apache.http.conn.ssl.NoopHostnameVerifier;
-import org.apache.http.impl.client.HttpClients;
 import org.apache.http.util.EntityUtils;
 import org.springframework.web.context.support.WebApplicationContextUtils;
 
+import edu.ucdavis.ucdh.stu.core.utils.HttpClientProvider;
 import edu.ucdavis.ucdh.stu.stu.beans.Contact;
 import edu.ucdavis.ucdh.stu.stu.manager.ContactManager;
 
@@ -86,8 +85,8 @@ public class CasTicketValidationServlet extends JavascriptServlet {
 	private String processURL(String url) {
 		String string = "";
 
-		HttpClient client = HttpClients.custom().setSSLHostnameVerifier(new NoopHostnameVerifier()).build();
 		try {
+			HttpClient client = HttpClientProvider.getClient();
 			HttpGet get = new HttpGet(url);
 			HttpResponse response = client.execute(get);
 			if (response.getStatusLine().getStatusCode() == 200) {

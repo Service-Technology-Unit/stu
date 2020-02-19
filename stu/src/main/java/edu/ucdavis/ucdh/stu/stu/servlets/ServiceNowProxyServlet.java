@@ -13,13 +13,12 @@ import org.apache.http.auth.UsernamePasswordCredentials;
 import org.apache.http.client.HttpClient;
 import org.apache.http.client.methods.HttpGet;
 import org.apache.http.client.methods.HttpPost;
-import org.apache.http.conn.ssl.NoopHostnameVerifier;
 import org.apache.http.entity.ByteArrayEntity;
 import org.apache.http.impl.auth.BasicScheme;
-import org.apache.http.impl.client.HttpClients;
 import org.apache.http.util.EntityUtils;
 import org.springframework.web.context.support.WebApplicationContextUtils;
 
+import edu.ucdavis.ucdh.stu.core.utils.HttpClientProvider;
 import edu.ucdavis.ucdh.stu.stu.beans.Contact;
 
 /**
@@ -94,12 +93,12 @@ public class ServiceNowProxyServlet extends JavascriptServlet {
 			service = "/" + service;
 		}
 		String url = serviceEndPoint + service;
-		HttpClient client = new HttpClients.custom().setSSLHostnameVerifier(new NoopHostnameVerifier()).build();
 		if ("post".equalsIgnoreCase(method)) {
 			if (log.isDebugEnabled()) {
 				log.debug("Posting content to URL " + url + " on behalf of " + userDetails.getFirstName() + " " + userDetails.getLastName());
 			}
 			try {
+				HttpClient client = HttpClientProvider.getClient();
 				HttpPost post = new HttpPost(url);
 				post.addHeader(new BasicScheme(StandardCharsets.UTF_8).authenticate(new UsernamePasswordCredentials(serviceAccount, serviceCredentials), post, null));
 				if (StringUtils.isNotEmpty(content)) {
@@ -123,6 +122,7 @@ public class ServiceNowProxyServlet extends JavascriptServlet {
 				log.debug("Accessing URL " + url + " on behalf of " + userDetails.getFirstName() + " " + userDetails.getLastName());
 			}
 			try {
+				HttpClient client = HttpClientProvider.getClient();
 				HttpGet get = new HttpGet(url);
 				get.addHeader(new BasicScheme(StandardCharsets.UTF_8).authenticate(new UsernamePasswordCredentials(serviceAccount, serviceCredentials), get, null));
 				HttpResponse response = client.execute(get);

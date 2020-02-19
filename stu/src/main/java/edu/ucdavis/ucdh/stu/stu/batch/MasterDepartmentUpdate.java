@@ -25,13 +25,12 @@ import org.apache.http.HttpEntity;
 import org.apache.http.HttpResponse;
 import org.apache.http.client.HttpClient;
 import org.apache.http.client.methods.HttpGet;
-import org.apache.http.conn.ssl.NoopHostnameVerifier;
-import org.apache.http.impl.client.HttpClients;
 import org.apache.http.util.EntityUtils;
 
 import edu.ucdavis.ucdh.stu.core.batch.SpringBatchJob;
 import edu.ucdavis.ucdh.stu.core.utils.BatchJobService;
 import edu.ucdavis.ucdh.stu.core.utils.BatchJobServiceStatistic;
+import edu.ucdavis.ucdh.stu.core.utils.HttpClientProvider;
 import edu.ucdavis.ucdh.stu.up2date.beans.Update;
 import edu.ucdavis.ucdh.stu.up2date.service.Up2DateService;
 
@@ -174,7 +173,11 @@ public class MasterDepartmentUpdate implements SpringBatchJob {
 		}
 
 		// establish HTTP Client
-		client = HttpClients.custom().setSSLHostnameVerifier(new NoopHostnameVerifier()).build();
+		try {
+			client = HttpClientProvider.getClient();
+		} catch (Exception e) {
+			log.error("Unable to create HTTP client: " + e, e);
+		}
 
 		log.info(" ");
 		log.info("Run time properties validated.");
