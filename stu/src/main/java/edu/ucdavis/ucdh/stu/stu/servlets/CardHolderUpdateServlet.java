@@ -87,7 +87,7 @@ public class CardHolderUpdateServlet extends HttpServlet {
 				if (action.equalsIgnoreCase("add") || action.equalsIgnoreCase("change") || action.equalsIgnoreCase("delete") || action.equalsIgnoreCase("force")) {
 					if (StringUtils.isNotEmpty(iamId)) {
 						Map<String,String> newPerson = buildPersonFromRequest(req);
-						Map<String,String> oldPerson = fetchCardholder(iamId, req.getParameter("ppsId"));
+						Map<String,String> oldPerson = fetchCardholder(iamId, req.getParameter("ucPathId"));
 						if (oldPerson != null) {
 							if (!action.equalsIgnoreCase("force") && personUnchanged(req, newPerson, oldPerson)) {
 								response = "1;No action taken -- no changes detected";
@@ -129,11 +129,11 @@ public class CardHolderUpdateServlet extends HttpServlet {
 	 * <p>Returns the card holder data on file in the card holder database, if present.</p>
 	 *
 	 * @param iamId the IAM ID of the person
-	 * @param ppsId the PPS ID of the person
+	 * @param ucPathId the UCPath ID of the person
 	 * @return the cardholder's data from the card key system
 	 * @throws IOException 
 	 */
-	private Map<String,String> fetchCardholder(String iamId, String ppsId) throws IOException {
+	private Map<String,String> fetchCardholder(String iamId, String ucPathId) throws IOException {
 		Map<String,String> person = null;
 
 		if (log.isDebugEnabled()) {
@@ -146,14 +146,14 @@ public class CardHolderUpdateServlet extends HttpServlet {
 		try {
 			con = dataSource.getConnection();
 			if (StringUtils.isEmpty(cardholderId)) {
-				if (StringUtils.isNotEmpty(ppsId)) {
+				if (StringUtils.isNotEmpty(ucPathId)) {
 					ps = con.prepareStatement("SELECT c_id FROM cardholder WHERE c_nick_name=?");
-					ps.setString(1, ppsId);
+					ps.setString(1, ucPathId);
 					rs = ps.executeQuery();
 					if (rs.next()) {
 						cardholderId = rs.getString(1);
 						if (log.isDebugEnabled()) {
-							log.debug("Found PPS ID #" + ppsId + " on file with a cardholder ID of " + cardholderId);
+							log.debug("Found UCPath ID #" + ucPathId + " on file with a cardholder ID of " + cardholderId);
 						}
 						try {
 							rs.close();
@@ -178,7 +178,7 @@ public class CardHolderUpdateServlet extends HttpServlet {
 					person.put("LAST_NAME", nullify(rs.getString("c_lname")));
 					person.put("FIRST_NAME", nullify(rs.getString("c_fname")));
 					person.put("MIDDLE_NAME", nullify(rs.getString("c_mname")));
-					person.put("PPS_ID", nullify(rs.getString("c_nick_name")));
+					person.put("UC_PATH_ID", nullify(rs.getString("c_nick_name")));
 					person.put("ADDRESS", nullify(rs.getString("c_addr")));
 					person.put("CITY", nullify(rs.getString("c_addr1")));
 					person.put("STATE", nullify(rs.getString("c_addr2")));
@@ -265,7 +265,7 @@ public class CardHolderUpdateServlet extends HttpServlet {
 				isEqual(oldPerson, newPerson, "TITLE 1") &&
 				isEqual(oldPerson, newPerson, "TITLE 2") &&
 				isEqual(oldPerson, newPerson, "TITLE 3") &&
-				isEqual(oldPerson, newPerson, "PPS_ID") &&
+				isEqual(oldPerson, newPerson, "UC_PATH_ID") &&
 				isEqual(oldPerson, newPerson, "ZIP")) {
 			unchanged = true;
 		}
@@ -291,9 +291,9 @@ public class CardHolderUpdateServlet extends HttpServlet {
 			if (StringUtils.isNotEmpty(oldPerson.get("CARDHOLDER_ID"))) {
 				cardholderId = oldPerson.get("CARDHOLDER_ID");
 			}
-			if (StringUtils.isEmpty(newPerson.get("PPS_ID"))) {
-				newPerson.put("PPS_ID", oldPerson.get("PPS_ID"));
-				newPerson.put("EMP_ID", oldPerson.get("PPS_ID"));
+			if (StringUtils.isEmpty(newPerson.get("UC_PATH_ID"))) {
+				newPerson.put("UC_PATH_ID", oldPerson.get("UC_PATH_ID"));
+				newPerson.put("EMP_ID", oldPerson.get("UC_PATH_ID"));
 			}
 			if (StringUtils.isEmpty(newPerson.get("HR_DEPTID"))) {
 				newPerson.put("HR_DEPT", oldPerson.get("HR_DEPT"));
@@ -317,7 +317,7 @@ public class CardHolderUpdateServlet extends HttpServlet {
 			ps.setString(3, nullify(newPerson.get("FIRST_NAME")));
 			ps.setString(4, nullify(newPerson.get("MIDDLE_NAME")));
 			ps.setString(5, nullify(newPerson.get("LAST_NAME")));
-			ps.setString(6, nullify(newPerson.get("PPS_ID")));
+			ps.setString(6, nullify(newPerson.get("UC_PATH_ID")));
 			ps.setString(7, nullify(newPerson.get("ADDRESS")));
 			ps.setString(8, nullify(newPerson.get("CITY")));
 			ps.setString(9, nullify(newPerson.get("STATE")));
@@ -394,7 +394,7 @@ public class CardHolderUpdateServlet extends HttpServlet {
 		person.put("FIRST_NAME", req.getParameter("firstName"));
 		person.put("MIDDLE_NAME", req.getParameter("middleName"));
 		person.put("LAST_NAME", req.getParameter("lastName"));
-		person.put("PPS_ID", req.getParameter("ppsId"));
+		person.put("UC_PATH_ID", req.getParameter("ucPathId"));
 		person.put("ADDRESS", req.getParameter("address"));
 		person.put("CITY", req.getParameter("city"));
 		person.put("STATE", req.getParameter("state"));
@@ -415,7 +415,7 @@ public class CardHolderUpdateServlet extends HttpServlet {
 		if (StringUtils.isNotEmpty(req.getParameter("endDate"))) {
 			person.put("EXPIRATION_DATE", "Exp: " + req.getParameter("endDate").substring(0, 10));
 		}
-		person.put("EMP_ID", req.getParameter("ppsId"));
+		person.put("EMP_ID", req.getParameter("ucPathId"));
 		person.put("ALT_ID", null);
 		if (StringUtils.isNotEmpty(req.getParameter("studentId"))) {
 			person.put("ALT_ID", "SID: " + req.getParameter("studentId"));
@@ -431,8 +431,8 @@ public class CardHolderUpdateServlet extends HttpServlet {
 			person.put("HR_NOTES", "INACTIVE");
 		}
 		person.put("IAM_ID", req.getParameter("id"));
-		if (StringUtils.isEmpty(req.getParameter("ppsId"))) {
-			person.put("SPONSOR", getPpsId(req.getParameter("supervisor")));
+		if (StringUtils.isEmpty(req.getParameter("ucPathId"))) {
+			person.put("SPONSOR", getUcpathId(req.getParameter("supervisor")));
 			if (StringUtils.isEmpty(person.get("SPONSOR"))) {
 				if (StringUtils.isNotEmpty(person.get("HR_DEPTID"))) {
 					person.put("SPONSOR", getDepartmentManager(person.get("HR_DEPTID")));
@@ -507,17 +507,17 @@ public class CardHolderUpdateServlet extends HttpServlet {
 	}
 
 	/**
-	 * <p>Returns the pps id for the iam id passed.</p>
+	 * <p>Returns the ucpath id for the iam id passed.</p>
 	 *
 	 * @param iamId the IAM ID of the person
-	 * @return the pps id for the iam id passed
+	 * @return the ucpath id for the iam id passed
 	 */
-	private String getPpsId(String iamId) {
-		String ppsId = null;
+	private String getUcpathId(String iamId) {
+		String ucPathId = null;
 
 		if (StringUtils.isNotEmpty(iamId)) {
 			if (log.isDebugEnabled()) {
-				log.debug("Searching for PPS ID for IAM ID #" + iamId + " ...");
+				log.debug("Searching for UCPath ID for IAM ID #" + iamId + " ...");
 			}
 			Connection con = null;
 			PreparedStatement ps = null;
@@ -528,13 +528,13 @@ public class CardHolderUpdateServlet extends HttpServlet {
 				ps.setString(1, iamId);
 				rs = ps.executeQuery();
 				if (rs.next()) {
-					ppsId = rs.getString(1);
+					ucPathId = rs.getString(1);
 					if (log.isDebugEnabled()) {
-						log.debug("Found IAM ID #" + iamId + " on file with a PPS ID of " + ppsId);
+						log.debug("Found IAM ID #" + iamId + " on file with a UCPath ID of " + ucPathId);
 					}
 				}
 			} catch (Exception e) {
-				log.error("Exception occurred while attempting to find PPS ID for IAM ID #" + iamId + ": " + e, e);
+				log.error("Exception occurred while attempting to find UCPath ID for IAM ID #" + iamId + ": " + e, e);
 			} finally {
 				if (rs != null) {
 					try {
@@ -560,14 +560,14 @@ public class CardHolderUpdateServlet extends HttpServlet {
 			}
 		} else {
 			if (log.isDebugEnabled()) {
-				log.debug("No PPS ID available for empty IAM ID");
+				log.debug("No UCPATH ID available for empty IAM ID");
 			}
 		}
 		if (log.isDebugEnabled()) {
-			log.debug("Returning ppsId: " + ppsId);
+			log.debug("Returning ucPathId: " + ucPathId);
 		}
 
-		return ppsId;
+		return ucPathId;
 	}
 
 	/**
