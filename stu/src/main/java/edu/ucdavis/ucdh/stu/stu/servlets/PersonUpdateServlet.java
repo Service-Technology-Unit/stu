@@ -65,6 +65,7 @@ public class PersonUpdateServlet extends SubscriberServlet {
 	private static final DateFormat DATE_FORMAT = new SimpleDateFormat("yyyy-MM-dd");
 	private Log log = LogFactory.getLog(getClass());
 	private String publisherId = null;
+	private Boolean idVerification = null;
 	private Up2DateService up2dateService = null;
 	private DataSource dataSource = null;
 	private List<Map<String,String>> field = new ArrayList<Map<String,String>>();
@@ -76,6 +77,7 @@ public class PersonUpdateServlet extends SubscriberServlet {
 	public void init() throws ServletException {
 		super.init();
 		ServletConfig config = getServletConfig();
+		idVerification = (Boolean) WebApplicationContextUtils.getRequiredWebApplicationContext(config.getServletContext()).getBean("verifyIdFlag");
 		publisherId = (String) WebApplicationContextUtils.getRequiredWebApplicationContext(config.getServletContext()).getBean("personPublisherId");
 		up2dateService = (Up2DateService) WebApplicationContextUtils.getRequiredWebApplicationContext(config.getServletContext()).getBean("up2dateService");
 		Hashtable<String,String> parms = new Hashtable<String,String>();
@@ -383,8 +385,10 @@ public class PersonUpdateServlet extends SubscriberServlet {
 			String idType = "UC PATH";
 			ids = addUpdateId(ids, idType, (String) person.get("UC_PATH_ID"), person, details);
 			JSONObject thisId = (JSONObject) ((JSONArray) ids.get(idType)).get(0);
-			thisId.put("IS_PRIMARY", "N");
-			verifyId(idType, thisId, person, details);
+			if (idVerification) {
+				thisId.put("IS_PRIMARY", "N");
+				verifyId(idType, thisId, person, details);
+			}
 			if ("Y".equalsIgnoreCase((String) thisId.get("IS_ACTIVE"))) {
 				personActive = true;
 				thisId.put("IS_PRIMARY", "Y");
@@ -415,13 +419,18 @@ public class PersonUpdateServlet extends SubscriberServlet {
 			}
 		}
 		if (StringUtils.isNotEmpty((String) person.get("HS_AD_ID"))) {
+			if (log.isDebugEnabled()) {
+				log.debug("ID Verification Value: " + idVerification);
+			}
 			String idType = "HS A/D";
 			ids = addUpdateId(ids, idType, (String) person.get("HS_AD_ID"), person, details);
 			JSONObject thisId = (JSONObject) ((JSONArray) ids.get(idType)).get(0);
-			thisId.put("IS_PRIMARY", "N");
-			verifyId(idType, thisId, person, details);
-			if ("Y".equalsIgnoreCase((String) thisId.get("IS_ACTIVE"))) {
-				thisId.put("IS_PRIMARY", "Y");
+			if (idVerification) {
+				thisId.put("IS_PRIMARY", "N");
+				verifyId(idType, thisId, person, details);
+				if ("Y".equalsIgnoreCase((String) thisId.get("IS_ACTIVE"))) {
+					thisId.put("IS_PRIMARY", "Y");
+				}
 			}
 		}
 		if (StringUtils.isNotEmpty((String) person.get("KERBEROS_ID"))) {
@@ -685,12 +694,19 @@ public class PersonUpdateServlet extends SubscriberServlet {
 			Iterator<JSONObject> j = idList.iterator();
 			while (j.hasNext()) {
 				JSONObject thisId = j.next();
-				thisId.put("IS_PRIMARY", "N");
-				verifyId(idType, thisId, newPerson, details);
-				if ("Y".equalsIgnoreCase((String) thisId.get("IS_ACTIVE"))) {
+				if (("HS A/D".equalsIgnoreCase(idType) || "UC PATH".equalsIgnoreCase(idType))  && !idVerification) {
+					if (log.isDebugEnabled()) {
+						log.debug("Skipping " + idType + " ID verification");
+					}
 					activeCt++;
-					if ("Y".equalsIgnoreCase((String) thisId.get("IS_CURRENT"))) {
-						currentCt++;
+				} else {
+					thisId.put("IS_PRIMARY", "N");
+					verifyId(idType, thisId, newPerson, details);
+					if ("Y".equalsIgnoreCase((String) thisId.get("IS_ACTIVE"))) {
+						activeCt++;
+						if ("Y".equalsIgnoreCase((String) thisId.get("IS_CURRENT"))) {
+							currentCt++;
+						}
 					}
 				}
 			}
@@ -1954,6 +1970,8 @@ public class PersonUpdateServlet extends SubscriberServlet {
 			thisId.put("ORIG_END_DATE", endDate);
 			idList.add(thisId);
 		}
+		thisId.put("IS_PRIMARY", "Y");
+		thisId.put("IS_ACTIVE", "Y");
 		thisId.put("IS_CURRENT", "Y");
 
 		return ids;
@@ -2031,6 +2049,9 @@ public class PersonUpdateServlet extends SubscriberServlet {
 		person.put("UC_PATH_START", req.getParameter("ucPathStart"));
 		person.put("UC_PATH_TYPE", req.getParameter("ucPathType"));
 		if (StringUtils.isNotEmpty((String) person.get("UC_PATH_ID"))) {
+			if (StringUtils.isEmpty((String) person.get("UC_PATH_PERCENT")) || Float.parseFloat((String) person.get("UC_PATH_PERCENT")) == 0) {
+				person.put("UC_PATH_PERCENT", "100.0");
+			}
 			if (StringUtils.isNotEmpty((String) person.get("PPS_ID"))) {
 				if ("UCDH".equals(person.get("UC_PATH_INSTITUTION"))) {
 					person.put("IS_UCDH_EMPLOYEE", "Y");
