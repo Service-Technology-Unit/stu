@@ -32,8 +32,6 @@ import org.apache.http.HttpResponse;
 import org.apache.http.auth.UsernamePasswordCredentials;
 import org.apache.http.client.HttpClient;
 import org.apache.http.client.methods.HttpGet;
-import org.apache.http.client.methods.HttpPut;
-import org.apache.http.entity.StringEntity;
 import org.apache.http.impl.auth.BasicScheme;
 import org.apache.http.util.EntityUtils;
 import org.json.simple.JSONArray;
@@ -52,12 +50,9 @@ import edu.ucdavis.ucdh.stu.up2date.service.Up2DateService;
  */
 public class PersonUpdateServlet extends SubscriberServlet {
 	private static final long serialVersionUID = 1;
-	private static final String EXT_FETCH_URL = "/api/now/table/x_ucdhs_identity_s_identity?sysparm_fields=sys_id%2Cemployee_number%2Cexternal_id%2Cstart_date%2Cend_date%2Ctitle%2Csupervisor.employee_number%2Cdepartment.u_id_6%2Cphone%2Clocation.u_location_code%2Cemail&sysparm_query=employee_number%3D";
-	private static final String EXT_FETCH_URL2 = "/api/now/table/x_ucdhs_identity_s_identity?sysparm_fields=sys_id%2Cemployee_number%2Cexternal_id%2Cstart_date%2Cend_date%2Ctitle%2Csupervisor.employee_number%2Cdepartment.u_id_6%2Cphone%2Clocation.u_location_code%2Cemail&sysparm_query=external_id%3D";
-	private static final String EXT_VERIFY_URL = "/api/now/table/x_ucdhs_identity_s_identity?sysparm_fields=start_date%2Cend_date&sysparm_query=external_id%3D";
-	private static final String EXT_UPDATE_URL = "/api/now/table/x_ucdhs_identity_s_identity/";
-	private static final String USER_FETCH_URL = "/api/now/table/sys_user?sysparm_fields=sys_id%2Cactive%2Cu_onboarding_in_progress%2Clocked_out%2Cemployee_number&sysparm_query=u_external_id%3D";
-	private static final String USER_UPDATE_URL = "/api/now/table/sys_user/";
+	private static final String EXT_FETCH_URL = "/api/now/table/x_ucdhs_identity_s_identity?sysparm_fields=sys_id%2Cnumber%2Cemployee_number%2Cexternal_id%2Cstart_date%2Cend_date%2Ctitle%2Csupervisor.employee_number%2Cdepartment.u_id_6%2Cphone%2Clocation.u_location_code%2Cemail&sysparm_query=ORDERBYDESCsys_created_on%5Eemployee_number%3D";
+	private static final String EXT_FETCH_URL2 = "/api/now/table/x_ucdhs_identity_s_identity?sysparm_fields=sys_id%2Cnumber%2Cemployee_number%2Cexternal_id%2Cstart_date%2Cend_date%2Ctitle%2Csupervisor.employee_number%2Cdepartment.u_id_6%2Cphone%2Clocation.u_location_code%2Cemail&sysparm_query=ORDERBYDESCsys_created_on%5Eexternal_id%3D";
+	private static final String EXT_VERIFY_URL = "/api/now/table/x_ucdhs_identity_s_identity?sysparm_fields=start_date%2Cend_date&sysparm_query=ORDERBYDESCsys_created_on%5Eexternal_id%3D";
 	private static final String FETCH_SQL = "SELECT ID, LAST_NAME, FIRST_NAME, MIDDLE_NAME, TITLE, SUPERVISOR, SUPERVISOR_NAME, MANAGER, MANAGER_NAME, DEPT_ID, DEPT_NAME, HS_AD_ID, HS_AD_ID_CT, KERBEROS_ID, KERBEROS_ID_CT, PPS_ID, PPS_ID_CT, EXTERNAL_ID, EXTERNAL_ID_CT, MOTHRA_ID, MOTHRA_ID_CT, BANNER_ID, BANNER_ID_CT, STUDENT_ID, STUDENT_ID_CT, VOLUNTEER_ID, VOLUNTEER_ID_CT, CAMPUS_PPS_ID, CAMPUS_PPS_ID_CT, UC_PATH_ID, UC_PATH_ID_CT, IS_ACTIVE, IS_UCDH_EMPLOYEE, IS_UCD_EMPLOYEE, IS_EMPLOYEE, IS_EXTERNAL, IS_PREVIOUS_UCDH_EMPLOYEE, IS_PREVIOUS_UCD_EMPLOYEE, IS_PREVIOUS_HS_EMPLOYEE, IS_STUDENT, START_DATE, END_DATE, PHONE_NUMBER, CELL_NUMBER, PAGER_NUMBER, PAGER_PROVIDER, ALTERNATE_PHONES, EMAIL, ALTERNATE_EMAIL, LOCATION_CODE, LOCATION_NAME, ADDRESS, CITY, STATE, ZIP, BUILDING, FLOOR, ROOM, STATION, CUBE, UC_PATH_INSTITUTION, UC_PATH_TYPE, UC_PATH_PERCENT, UC_PATH_REPRESENTATION, STUDENT_MAJOR, STUDENT_MAJOR_NAME, CREATED_ON, CREATED_BY, CREATED_FROM, UPDATE_CT, UPDATED_ON, UPDATED_BY, UPDATED_FROM, SYSMODCOUNT, SYSMODTIME, SYSMODUSER, SYSMODADDR FROM VIEW_PERSON_ALL WHERE ID=?";
 	private static final String USER_ID = "up2date";
 	private static final String[] FIELD = {"ID", "LAST_NAME", "FIRST_NAME", "MIDDLE_NAME", "TITLE", "SUPERVISOR", "MANAGER", "DEPT_ID", "HS_AD_ID", "KERBEROS_ID", "PPS_ID", "EXTERNAL_ID", "MOTHRA_ID", "BANNER_ID", "STUDENT_ID", "VOLUNTEER_ID", "CAMPUS_PPS_ID", "UC_PATH_ID", "IS_ACTIVE", "IS_UCDH_EMPLOYEE", "IS_UCD_EMPLOYEE", "IS_EXTERNAL", "IS_PREVIOUS_UCDH_EMPLOYEE", "IS_PREVIOUS_UCD_EMPLOYEE", "IS_STUDENT", "START_DATE", "END_DATE", "PHONE_NUMBER", "CELL_NUMBER", "PAGER_NUMBER", "PAGER_PROVIDER", "ALTERNATE_PHONES", "EMAIL", "ALTERNATE_EMAIL", "LOCATION_CODE", "STATION", "UC_PATH_INSTITUTION", "UC_PATH_TYPE", "UC_PATH_PERCENT", "UC_PATH_REPRESENTATION", "STUDENT_MAJOR", "STUDENT_MAJOR_NAME", "CREATED_ON", "CREATED_BY", "CREATED_FROM", "UPDATE_CT", "UPDATED_ON", "UPDATED_BY", "UPDATED_FROM"};
@@ -301,6 +296,7 @@ public class PersonUpdateServlet extends SubscriberServlet {
 				isEqual(oldPerson, newPerson, "CAMPUS_PPS_ID") &&
 				isEqual(oldPerson, newPerson, "DEPT_ID") &&
 				isEqual(oldPerson, newPerson, "EMAIL") &&
+				isEqual(oldPerson, newPerson, "ALTERNATE_EMAIL") &&
 				isEqual(oldPerson, newPerson, "END_DATE") &&
 				isEqual(oldPerson, newPerson, "EXTERNAL_ID") &&
 				isEqual(oldPerson, newPerson, "FIRST_NAME") &&
@@ -357,7 +353,7 @@ public class PersonUpdateServlet extends SubscriberServlet {
 			remoteAddr = req.getHeader("X-Forwarded-For");
 		}
 		person.put("START_DATE", getPersonStartDate(person, null));
-		if (!"UCDH".equalsIgnoreCase((String) person.get("UC_PATH_INSTITUTION"))) {
+		if (StringUtils.isEmpty((String) person.get("UC_PATH_ID")) || "UCD".equalsIgnoreCase((String) person.get("UC_PATH_INSTITUTION"))) {
 			// discard UCD campus department
 			person.remove("DEPT_ID");
 			person = addExternalData(person, null, details);
@@ -613,7 +609,9 @@ public class PersonUpdateServlet extends SubscriberServlet {
 			remoteAddr = req.getHeader("X-Forwarded-For");
 		}
 		newPerson.put("START_DATE", getPersonStartDate(newPerson, oldPerson));
-		if (!"UCDH".equalsIgnoreCase((String) newPerson.get("UC_PATH_INSTITUTION"))) {
+		if (StringUtils.isEmpty((String) newPerson.get("UC_PATH_ID")) || "UCD".equalsIgnoreCase((String) newPerson.get("UC_PATH_INSTITUTION"))) {
+			// discard UCD campus department
+			newPerson.remove("DEPT_ID");
 			newPerson = addExternalData(newPerson, oldPerson, details);
 		}
 		if (StringUtils.isEmpty((String) newPerson.get("DEPT_ID"))) {
@@ -781,9 +779,9 @@ public class PersonUpdateServlet extends SubscriberServlet {
 		PreparedStatement ps = null;
 		try {
 			conn = dataSource.getConnection();
-			String sql = "UPDATE PERSON SET DEPT_ID=?, EMAIL=?, END_DATE=null, FIRST_NAME=?, IS_ACTIVE='Y', IS_EXTERNAL=?, IS_PREVIOUS_UCD_EMPLOYEE=?, IS_PREVIOUS_UCDH_EMPLOYEE=?, IS_STUDENT=?, IS_UCD_EMPLOYEE=?, IS_UCDH_EMPLOYEE=?, LAST_NAME=?, LOCATION_CODE=?, MANAGER=?, MIDDLE_NAME=?, PHONE_NUMBER=?, START_DATE=?, STUDENT_MAJOR=?, STUDENT_MAJOR_NAME=?, SUPERVISOR=?, TITLE=?, UC_PATH_INSTITUTION=?, UC_PATH_PERCENT=?, UC_PATH_REPRESENTATION=?, UC_PATH_TYPE=?, UPDATE_CT=UPDATE_CT+1, UPDATED_BY=?, UPDATED_ON=getdate(), UPDATED_FROM=? WHERE ID=?";
+			String sql = "UPDATE PERSON SET DEPT_ID=?, EMAIL=?, END_DATE=null, FIRST_NAME=?, IS_ACTIVE='Y', IS_EXTERNAL=?, IS_PREVIOUS_UCD_EMPLOYEE=?, IS_PREVIOUS_UCDH_EMPLOYEE=?, IS_STUDENT=?, IS_UCD_EMPLOYEE=?, IS_UCDH_EMPLOYEE=?, LAST_NAME=?, LOCATION_CODE=?, MANAGER=?, MIDDLE_NAME=?, PHONE_NUMBER=?, START_DATE=?, STUDENT_MAJOR=?, STUDENT_MAJOR_NAME=?, SUPERVISOR=?, TITLE=?, UC_PATH_INSTITUTION=?, UC_PATH_PERCENT=?, UC_PATH_REPRESENTATION=?, UC_PATH_TYPE=?, ALTERNATE_EMAIL=?, UPDATE_CT=UPDATE_CT+1, UPDATED_BY=?, UPDATED_ON=getdate(), UPDATED_FROM=? WHERE ID=?";
 			if (!personActive) {
-				sql = "UPDATE PERSON SET DEPT_ID=?, EMAIL=?, END_DATE=getdate(), FIRST_NAME=?, IS_ACTIVE='N', IS_EXTERNAL=?, IS_PREVIOUS_UCD_EMPLOYEE=?, IS_PREVIOUS_UCDH_EMPLOYEE=?, IS_STUDENT=?, IS_UCD_EMPLOYEE=?, IS_UCDH_EMPLOYEE=?, LAST_NAME=?, LOCATION_CODE=?, MANAGER=?, MIDDLE_NAME=?, PHONE_NUMBER=?, START_DATE=?, STUDENT_MAJOR=?, STUDENT_MAJOR_NAME=?, SUPERVISOR=?, TITLE=?, UC_PATH_INSTITUTION=?, UC_PATH_PERCENT=?, UC_PATH_REPRESENTATION=?, UC_PATH_TYPE=?, UPDATE_CT=UPDATE_CT+1, UPDATED_BY=?, UPDATED_ON=getdate(), UPDATED_FROM=? WHERE ID=?";
+				sql = "UPDATE PERSON SET DEPT_ID=?, EMAIL=?, END_DATE=getdate(), FIRST_NAME=?, IS_ACTIVE='N', IS_EXTERNAL=?, IS_PREVIOUS_UCD_EMPLOYEE=?, IS_PREVIOUS_UCDH_EMPLOYEE=?, IS_STUDENT=?, IS_UCD_EMPLOYEE=?, IS_UCDH_EMPLOYEE=?, LAST_NAME=?, LOCATION_CODE=?, MANAGER=?, MIDDLE_NAME=?, PHONE_NUMBER=?, START_DATE=?, STUDENT_MAJOR=?, STUDENT_MAJOR_NAME=?, SUPERVISOR=?, TITLE=?, UC_PATH_INSTITUTION=?, UC_PATH_PERCENT=?, UC_PATH_REPRESENTATION=?, UC_PATH_TYPE=?, ALTERNATE_EMAIL=?, UPDATE_CT=UPDATE_CT+1, UPDATED_BY=?, UPDATED_ON=getdate(), UPDATED_FROM=? WHERE ID=?";
 			}
 			if (log.isDebugEnabled()) {
 				log.debug("Using the following SQL: " + sql);
@@ -812,9 +810,10 @@ public class PersonUpdateServlet extends SubscriberServlet {
 			ps.setString(21, (String) newPerson.get("UC_PATH_PERCENT"));
 			ps.setString(22, (String) newPerson.get("UC_PATH_REPRESENTATION"));
 			ps.setString(23, (String) newPerson.get("UC_PATH_TYPE"));
-			ps.setString(24, USER_ID);
-			ps.setString(25, remoteAddr);
-			ps.setString(26, (String) newPerson.get("ID"));
+			ps.setString(24, (String) newPerson.get("ALTERNATE_EMAIL"));
+			ps.setString(25, USER_ID);
+			ps.setString(26, remoteAddr);
+			ps.setString(27, (String) newPerson.get("ID"));
 			if (ps.executeUpdate() > 0) {
 				if (log.isDebugEnabled()) {
 					log.debug("Person successfully updated");
@@ -1235,6 +1234,7 @@ public class PersonUpdateServlet extends SubscriberServlet {
 		if (StringUtils.isEmpty(externalId)) {
 			if (oldPerson != null) {
 				externalId = (String) oldPerson.get("EXTERNAL_ID");
+				newPerson.put("EXTERNAL_ID", externalId);
 			}
 		}
 		String url = serviceNowServer + EXT_FETCH_URL + id;
@@ -1271,11 +1271,16 @@ public class PersonUpdateServlet extends SubscriberServlet {
 			}
 			if (records != null && records.size() > 0) {
 				JSONObject external = (JSONObject) records.get(0);
-				if (records.size() > 1) {
-					external = getBestExternalRecord(records);
-				}
 				if (log.isDebugEnabled()) {
 					log.debug("External found for person " + id + ": " + external.toJSONString());
+				}
+				String extExternalId = (String) external.get("external_id");
+				if (StringUtils.isEmpty(extExternalId)) {
+					extExternalId = (String) external.get("number");
+				}
+				if (StringUtils.isEmpty(externalId) || !externalId.startsWith("H00")) {
+					externalId = extExternalId;
+					newPerson.put("EXTERNAL_ID", externalId);
 				}
 				if (StringUtils.isNotEmpty((String) external.get("title"))) {
 					newPerson.put("TITLE", (String) external.get("title"));
@@ -1300,9 +1305,6 @@ public class PersonUpdateServlet extends SubscriberServlet {
 					} else {
 						newPerson.put("ALTERNATE_EMAIL", email);
 					}
-				}
-				if (StringUtils.isEmpty((String) external.get("employee_number")) || StringUtils.isEmpty((String) external.get("external_id"))) {
-					updateServiceNow((String) external.get("sys_id"), externalId, id, details);
 				}
 			} else {
 				if (log.isDebugEnabled()) {
@@ -1379,179 +1381,6 @@ public class PersonUpdateServlet extends SubscriberServlet {
 		}
 
 		return records;
-	}
-
-	/**
-	 * <p>Returns the best external from the list of externals passed.</p>
-	 *
-	 * @param records a list of external identities
-	 * @return the best external from the list
-	 */
-	private JSONObject getBestExternalRecord(JSONArray records) {
-		//TODO need to add some code in here to pick out the best external identity
-		return (JSONObject) records.get(0);
-	}
-
-	/**
-	 * <p>Updates the External record in ServiceNow with the new IAM ID.</p>
-	 *
-	 * @param sysId
-	 * @param externalId
-	 * @param id
-	 */
-	@SuppressWarnings("unchecked")
-	private void updateServiceNow(String sysId, String externalId, String id, JSONObject details) {
-		if (log.isDebugEnabled()) {
-			log.debug("Updating ServiceNow Identity with IAM ID " + id + " for External " + externalId);
-		}
-
-		// create HttpPut
-		String url = serviceNowServer + EXT_UPDATE_URL  + sysId;
-		HttpPut put = new HttpPut(url);
-		put.setHeader(HttpHeaders.ACCEPT, "application/json");
-		put.setHeader(HttpHeaders.CONTENT_TYPE, "application/json");
-
-		// build JSON to put
-		JSONObject updateData = new JSONObject();
-		updateData.put("employee_number", id);
-		if (log.isDebugEnabled()) {
-			log.debug("JSON object to PUT: " + updateData.toJSONString());
-		}
-
-		// put JSON
-		try {
-			put.addHeader(new BasicScheme(StandardCharsets.UTF_8).authenticate(new UsernamePasswordCredentials(serviceNowUser, serviceNowPassword), put, null));
-			put.setEntity(new StringEntity(updateData.toJSONString()));
-			HttpClient client = HttpClientProvider.getClient();
-			if (log.isDebugEnabled()) {
-				log.debug("Putting JSON update to " + url);
-			}
-			HttpResponse resp = client.execute(put);
-			int rc = resp.getStatusLine().getStatusCode();
-			if (rc == 200) {
-				if (log.isDebugEnabled()) {
-					log.debug("HTTP response code from put: " + rc);
-				}
-			} else {
-				if (log.isDebugEnabled()) {
-					log.debug("Invalid HTTP Response Code returned when updating sys_id " + sysId + ": " + rc);
-				}
-				eventService.logEvent(new Event((String) details.get("id"), "Identity update error", "Invalid HTTP Response Code returned when updating sys_id " + sysId + ": " + rc, details));
-			}
-			if (log.isDebugEnabled()) {
-				String jsonRespString = "";
-				HttpEntity entity = resp.getEntity();
-				if (entity != null) {
-					jsonRespString = EntityUtils.toString(entity);
-				}
-				JSONObject result = (JSONObject) JSONValue.parse(jsonRespString);
-				log.debug("JSON response: " + result.toJSONString());
-			}
-		} catch (Exception e) {
-			log.debug("Exception occured when attempting to update external " + externalId + ": " + e);
-			eventService.logEvent(new Event((String) details.get("id"), "Identity update exception", "Exception occurred when attempting to update sys_id " + sysId + ": " + e, details, e));
-		}
-		updateServiceNowUser(externalId, id, details);
-	}
-
-	/**
-	 * <p>Updates the User record in ServiceNow with the new IAM ID.</p>
-	 *
-	 * @param externalId
-	 * @param id
-	 */
-	@SuppressWarnings("unchecked")
-	private void updateServiceNowUser(String externalId, String id, JSONObject details) {
-		if (log.isDebugEnabled()) {
-			log.debug("Fetching user record for external " + externalId);
-		}
-
-		// create HttpGet
-		String url = serviceNowServer + USER_FETCH_URL + externalId;
-		HttpGet get = new HttpGet(url);
-		get.setHeader(HttpHeaders.ACCEPT, "application/json");
-		get.setHeader(HttpHeaders.CONTENT_TYPE, "application/json");
-
-		// get JSON
-		try {
-			get.addHeader(new BasicScheme(StandardCharsets.UTF_8).authenticate(new UsernamePasswordCredentials(serviceNowUser, serviceNowPassword), get, null));
-			HttpClient client = HttpClientProvider.getClient();
-			if (log.isDebugEnabled()) {
-				log.debug("Fetching User data from URL " + url);
-			}
-			HttpResponse resp = client.execute(get);
-			int rc = resp.getStatusLine().getStatusCode();
-			if (rc == 200) {
-				if (log.isDebugEnabled()) {
-					log.debug("HTTP response code from get: " + rc);
-				}
-				String jsonRespString = "";
-				HttpEntity entity = resp.getEntity();
-				if (entity != null) {
-					jsonRespString = EntityUtils.toString(entity);
-				}
-				JSONObject result = (JSONObject) JSONValue.parse(jsonRespString);
-				if (log.isDebugEnabled()) {
-					log.debug("JSON response: " + result.toJSONString());
-				}
-				// create HttpPut
-				String sysId = (String) result.get("sys_id");
-				url = serviceNowServer + USER_UPDATE_URL + sysId;
-				HttpPut put = new HttpPut(url);
-				put.setHeader(HttpHeaders.ACCEPT, "application/json");
-				put.setHeader(HttpHeaders.CONTENT_TYPE, "application/json");
-
-				// build JSON to put
-				JSONObject updateData = new JSONObject();
-				updateData.put("employee_number", id);
-				updateData.put("active", "true");
-				updateData.put("locked_out", "false");
-				updateData.put("u_onboarding_in_progress", "false");
-				if (log.isDebugEnabled()) {
-					log.debug("JSON object to PUT: " + updateData.toJSONString());
-				}
-				// put JSON
-				try {
-					put.addHeader(new BasicScheme(StandardCharsets.UTF_8).authenticate(new UsernamePasswordCredentials(serviceNowUser, serviceNowPassword), put, null));
-					put.setEntity(new StringEntity(updateData.toJSONString()));
-					if (log.isDebugEnabled()) {
-						log.debug("Putting JSON update to " + url);
-					}
-					resp = client.execute(put);
-					rc = resp.getStatusLine().getStatusCode();
-					if (rc == 200) {
-						if (log.isDebugEnabled()) {
-							log.debug("HTTP response code from put: " + rc);
-						}
-					} else {
-						if (log.isDebugEnabled()) {
-							log.debug("Invalid HTTP Response Code returned when updating sys_id " + sysId + ": " + rc);
-						}
-						eventService.logEvent(new Event((String) details.get("id"), "User update error", "Invalid HTTP Response Code returned when updating sys_id " + sysId + ": " + rc, details));
-					}
-					if (log.isDebugEnabled()) {
-						jsonRespString = "";
-						entity = resp.getEntity();
-						if (entity != null) {
-							jsonRespString = EntityUtils.toString(entity);
-						}
-						result = (JSONObject) JSONValue.parse(jsonRespString);
-						log.debug("JSON response: " + result.toJSONString());
-					}
-				} catch (Exception e) {
-					log.debug("Exception occured when updating sys_id " + sysId + ": " + e);
-					eventService.logEvent(new Event((String) details.get("id"), "User update exception", "Exception occurred when attempting to update User for external " + externalId + ": " + e, details, e));
-				}
-			} else {
-				if (log.isDebugEnabled()) {
-					log.debug("Invalid HTTP Response Code returned when fetching User for external " + externalId + ": " + rc);
-				}
-				eventService.logEvent(new Event((String) details.get("id"), "User fetch error", "Invalid HTTP Response Code returned when fetching User for external " + externalId + ": " + rc, details));
-			}
-		} catch (Exception e) {
-			log.debug("Exception occured when fetching User for external " + externalId + ": " + e);
-			eventService.logEvent(new Event((String) details.get("id"), "User fetch exception", "Exception occurred when attempting to fetch User for external " + externalId + ": " + e, details, e));
-		}
 	}
 
 	/**
@@ -1807,7 +1636,7 @@ public class PersonUpdateServlet extends SubscriberServlet {
 		if (log.isDebugEnabled()) {
 			log.debug("Verifying externalId " + idValue + " via ServiceNow");
 		}
-		String url = serviceNowServer + EXT_VERIFY_URL + idValue;
+		String url = serviceNowServer + EXT_VERIFY_URL + idValue + "%5EORnumber%3D" + idValue;
 		HttpGet get = new HttpGet(url);
 		get.setHeader(HttpHeaders.ACCEPT, "application/json");
 		try {
