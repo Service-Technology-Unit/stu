@@ -1,6 +1,7 @@
 package edu.ucdavis.ucdh.stu.stu.servlets;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -19,19 +20,40 @@ import javax.sql.DataSource;
 import org.apache.commons.lang.StringUtils;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
+import org.apache.http.HttpEntity;
+import org.apache.http.HttpHeaders;
+import org.apache.http.HttpResponse;
+import org.apache.http.auth.UsernamePasswordCredentials;
+import org.apache.http.client.HttpClient;
+import org.apache.http.client.methods.HttpGet;
+import org.apache.http.impl.auth.BasicScheme;
+import org.apache.http.util.EntityUtils;
+import org.json.simple.JSONArray;
+import org.json.simple.JSONObject;
+import org.json.simple.JSONValue;
 import org.springframework.web.context.support.WebApplicationContextUtils;
+
+import edu.ucdavis.ucdh.stu.core.utils.HttpClientProvider;
+import edu.ucdavis.ucdh.stu.snutil.beans.Event;
+import edu.ucdavis.ucdh.stu.snutil.util.EventService;
 
 /**
  * <p>This servlet updates the CardKey cardholder database with data from the UCDH Person Repository.</p>
  */
 public class CardHolderUpdateServlet extends HttpServlet {
 	private static final long serialVersionUID = 1;
+	private static final String GRANT_FETCH_URL = "/api/now/table/x_ucdhs_access_gra_access_grant?sysparm_fields=status&sysparm_query=grant.nameLIKEbadge%5Estatus%3Dactive%5Euser.employee_number%3D";
 	private Log log = LogFactory.getLog(getClass());
 	private int iamIdIndex = -1;
+	private boolean includeExternals = false;
 	private String authorizedIpList = null;
+	private String serviceNowServer = null;
+	private String serviceNowUser = null;
+	private String serviceNowPassword = null;
+	private EventService eventService = null;
 	private List<String> authorizedIp = new ArrayList<String>();
 	private DataSource dataSource = null;
-	private DataSource smDataSource = null;
+	private DataSource prDataSource = null;
 
 	/**
 	 * @inheritDoc
@@ -40,6 +62,10 @@ public class CardHolderUpdateServlet extends HttpServlet {
 	public void init() throws ServletException {
 		super.init();
 		ServletConfig config = getServletConfig();
+		Boolean incExternals = (Boolean) WebApplicationContextUtils.getRequiredWebApplicationContext(config.getServletContext()).getBean("cardKeyIncludeExternals");
+		if (incExternals) {
+			includeExternals = true;
+		}
 		authorizedIpList = (String) WebApplicationContextUtils.getRequiredWebApplicationContext(config.getServletContext()).getBean("authorizedIpList");
 		if (StringUtils.isNotEmpty(authorizedIpList)) {
 			String[] ipArray = authorizedIpList.split(",");
@@ -47,8 +73,12 @@ public class CardHolderUpdateServlet extends HttpServlet {
 				authorizedIp.add(ipArray[i].trim());
 			}
 		}
+		serviceNowServer = (String) WebApplicationContextUtils.getRequiredWebApplicationContext(config.getServletContext()).getBean("serviceNowServer");
+		serviceNowUser = (String) WebApplicationContextUtils.getRequiredWebApplicationContext(config.getServletContext()).getBean("serviceNowUser");
+		serviceNowPassword = (String) WebApplicationContextUtils.getRequiredWebApplicationContext(config.getServletContext()).getBean("serviceNowPassword");
+		eventService = (EventService) WebApplicationContextUtils.getRequiredWebApplicationContext(config.getServletContext()).getBean("eventService");
 		dataSource = (DataSource) WebApplicationContextUtils.getRequiredWebApplicationContext(config.getServletContext()).getBean("cardKeyDataSource");
-		smDataSource = (DataSource) WebApplicationContextUtils.getRequiredWebApplicationContext(config.getServletContext()).getBean("dataSource");
+		prDataSource = (DataSource) WebApplicationContextUtils.getRequiredWebApplicationContext(config.getServletContext()).getBean("masterDataSource");
 		iamIdIndex = fetchIamIdIndex();
 	}
 
@@ -61,7 +91,7 @@ public class CardHolderUpdateServlet extends HttpServlet {
 	 * @throws IOException 
 	 */
 	public void doGet(HttpServletRequest req, HttpServletResponse res) throws IOException {
-		sendError(req, res, HttpServletResponse.SC_METHOD_NOT_ALLOWED, "The GET method is not allowed for this URL");
+		sendError(req, res, HttpServletResponse.SC_METHOD_NOT_ALLOWED, "The GET method is not allowed for this URL", null);
     }
 
 	/**
@@ -71,39 +101,58 @@ public class CardHolderUpdateServlet extends HttpServlet {
 	 * @param res the <code>HttpServletResponse</code> object
 	 * @throws IOException 
 	 */
+	@SuppressWarnings("unchecked")
 	public void doPost(HttpServletRequest req, HttpServletResponse res) throws IOException {
+		String response = "";
+		String requestId = req.getParameter("_rid");
+		String subscriptionId = req.getParameter("_sid");
+		String publisherId = req.getParameter("_pid");
+		String action = req.getParameter("_action");
+		String id = req.getParameter("id");
+
+		if (log.isDebugEnabled()) {
+			log.debug("Processing new update - Publisher: " + publisherId + "; Subscription: " + subscriptionId + "; Request: " + requestId + "; IAM ID: " + id);
+		}
+
+		JSONObject details = new JSONObject();
+		details.put("requestId", requestId);
+		details.put("subscriptionId", subscriptionId);
+		details.put("publisherId", publisherId);
+		details.put("action", action);
+		details.put("id", id);
+
 		String remoteAddr = req.getRemoteAddr();
 		if (StringUtils.isNotEmpty(req.getHeader("X-Forwarded-For"))) {
 			remoteAddr = req.getHeader("X-Forwarded-For");
 		}
 		if (authorizedIp.contains(remoteAddr)) {
-			String response = "";
-			String action = req.getParameter("_action");
-			String iamId = req.getParameter("id");
-			if (log.isDebugEnabled()) {
-				log.debug("Processing new update - IAM ID: " + iamId + "; Action: " + action);
-			}
 			if (StringUtils.isNotEmpty(action)) {
 				if (action.equalsIgnoreCase("add") || action.equalsIgnoreCase("change") || action.equalsIgnoreCase("delete") || action.equalsIgnoreCase("force")) {
-					if (StringUtils.isNotEmpty(iamId)) {
-						Map<String,String> newPerson = buildPersonFromRequest(req);
-						Map<String,String> oldPerson = fetchCardholder(iamId, req.getParameter("ucPathId"));
-						if (oldPerson != null) {
-							if (!action.equalsIgnoreCase("force") && personUnchanged(req, newPerson, oldPerson)) {
-								response = "1;No action taken -- no changes detected";
-							} else {
-								response = updateCardholder(req, res, newPerson, oldPerson);
-							}
-						} else {
-							if (action.equalsIgnoreCase("delete")) {
-								response = "1;No action taken -- person not on file";
-							} else {
-								if ("INACTIVE".equalsIgnoreCase(newPerson.get("HR_NOTES"))) {
-									response = "1;No action taken -- INACTIVE persons are not inserted";
+					if (StringUtils.isNotEmpty(id)) {
+						JSONObject newPerson = buildPersonFromRequest(req, details);
+						details.put("newPerson", newPerson);
+						if (StringUtils.isEmpty((String) newPerson.get("bypassReason"))) {
+							Map<String,String> oldPerson = fetchCardholder(id, req.getParameter("ucPathId"), details);
+							if (oldPerson != null) {
+								details.put("oldPerson", oldPerson);
+								if (!action.equalsIgnoreCase("force") && personUnchanged(req, newPerson, oldPerson)) {
+									response = "1;No action taken -- no changes detected";
 								} else {
-									response = updateCardholder(req, res, newPerson, null);
+									response = updateCardholder(req, res, newPerson, oldPerson, details);
+								}
+							} else {
+								if (action.equalsIgnoreCase("delete")) {
+									response = "1;No action taken -- person not on file";
+								} else {
+									if ("INACTIVE".equalsIgnoreCase((String) newPerson.get("HR_NOTES"))) {
+										response = "1;No action taken -- INACTIVE persons are not inserted";
+									} else {
+										response = updateCardholder(req, res, newPerson, null, details);
+									}
 								}
 							}
+						} else {
+							response = "1;No action taken -- " + newPerson.get("bypassReason");
 						}
 					} else {
 						response = "2;Error - Required parameter \"id\" has no value";
@@ -121,28 +170,28 @@ public class CardHolderUpdateServlet extends HttpServlet {
 			res.setContentType("text/plain;charset=UTF-8");
 			res.getWriter().write(response);
 		} else {
-			sendError(req, res, HttpServletResponse.SC_FORBIDDEN, remoteAddr + " is not authorized to access this service");
+			sendError(req, res, HttpServletResponse.SC_FORBIDDEN, remoteAddr + " is not authorized to access this service", details);
 		}
 	}
 
 	/**
 	 * <p>Returns the card holder data on file in the card holder database, if present.</p>
 	 *
-	 * @param iamId the IAM ID of the person
+	 * @param id the IAM ID of the person
 	 * @param ucPathId the UCPath ID of the person
+	 * @param details the JSON object containing the details of this transaction
 	 * @return the cardholder's data from the card key system
-	 * @throws IOException 
 	 */
-	private Map<String,String> fetchCardholder(String iamId, String ucPathId) throws IOException {
+	private Map<String,String> fetchCardholder(String id, String ucPathId, JSONObject details) {
 		Map<String,String> person = null;
 
 		if (log.isDebugEnabled()) {
-			log.debug("Searching card key database for IAM ID #" + iamId + " ...");
+			log.debug("Searching card key database for IAM ID #" + id + " ...");
 		}
 		Connection con = null;
 		PreparedStatement ps = null;
 		ResultSet rs = null;
-		String cardholderId = getCardholderId(iamId);
+		String cardholderId = getCardholderId(id, details);
 		try {
 			con = dataSource.getConnection();
 			if (StringUtils.isEmpty(cardholderId)) {
@@ -208,7 +257,8 @@ public class CardHolderUpdateServlet extends HttpServlet {
 				}
 			}
 		} catch (Exception e) {
-			log.error("Exception occurred while attempting to find IAM ID #" + iamId + ": " + e, e);
+			log.error("Exception occurred while attempting to find IAM ID #" + id + ": " + e, e);
+			eventService.logEvent(new Event(id, "Card Holder fetch exception", "Exception occurred while attempting to find IAM ID #" + id + ": " + e, details, e));
 		} finally {
 			if (rs != null) {
 				try {
@@ -277,13 +327,11 @@ public class CardHolderUpdateServlet extends HttpServlet {
 	 * <p>Returns the response.</p>
 	 *
 	 * @param req the <code>HttpServletRequest</code> object
-	 * @param res the <code>HttpServletResponse</code> object
 	 * @param newPerson the new data for this person
 	 * @param oldPerson the existing data for this person
 	 * @return the response
-	 * @throws IOException 
 	 */
-	private String updateCardholder(HttpServletRequest req, HttpServletResponse res, Map<String,String> newPerson, Map<String,String> oldPerson) throws IOException {
+	private String updateCardholder(HttpServletRequest req, HttpServletResponse res, Map<String,String> newPerson, Map<String,String> oldPerson, JSONObject details) {
 		String response = null;
 
 		String cardholderId = null;
@@ -357,8 +405,9 @@ public class CardHolderUpdateServlet extends HttpServlet {
 				response = "1;Unable to add update to the pending work queue";
 			}
 		} catch (Exception e) {
-			log.error("Exception occurred while attempting to add update to the pending work queue: " + e, e);
-			response = "2;Exception occurred while attempting to add update to the pending work queue: " + e;
+			response = "2;Exception occurred while attempting to add to the pending work queue: " + e;
+			log.error("Exception occurred while attempting to add to the pending work queue: " + e, e);
+			eventService.logEvent(new Event(newPerson.get("IAM_ID"), "Card Holder update exception", "Exception occurred while attempting to add to the pending work queue: " + e, details, e));
 		} finally {
 			if (ps != null) {
 				try {
@@ -388,8 +437,9 @@ public class CardHolderUpdateServlet extends HttpServlet {
 	 * @param req the <code>HttpServletRequest</code> object
 	 * @return the person data from the incoming request
 	 */
-	private Map<String,String> buildPersonFromRequest(HttpServletRequest req) {
-		Map<String,String> person = new HashMap<String,String>();
+	@SuppressWarnings("unchecked")
+	private JSONObject buildPersonFromRequest(HttpServletRequest req, JSONObject details) {
+		JSONObject person = new JSONObject();
 
 		person.put("FIRST_NAME", req.getParameter("firstName"));
 		person.put("MIDDLE_NAME", req.getParameter("middleName"));
@@ -407,37 +457,38 @@ public class CardHolderUpdateServlet extends HttpServlet {
 		person.put("NAME", req.getParameter("firstName") + " " + req.getParameter("lastName"));
 		person.put("FIRST", req.getParameter("firstName"));
 		person.put("LAST", req.getParameter("lastName"));
-		person.put("DEGREES", null);
-		person.put("TITLE_1", null);
-		person.put("TITLE_2", null);
-		person.put("TITLE_3", null);
-		person.put("EXPIRATION_DATE", null);
 		if (StringUtils.isNotEmpty(req.getParameter("endDate"))) {
 			person.put("EXPIRATION_DATE", "Exp: " + req.getParameter("endDate").substring(0, 10));
 		}
-		person.put("EMP_ID", req.getParameter("ucPathId"));
-		person.put("ALT_ID", null);
-		if (StringUtils.isNotEmpty(req.getParameter("studentId"))) {
+		if (StringUtils.isNotEmpty(req.getParameter("ucPathId"))) {
+			if ("UCDH".equalsIgnoreCase(req.getParameter("ucPathInstitution"))) {
+				person.put("EMP_ID", req.getParameter("ucPathId"));
+			} else {
+				person.put("ALT_ID", "CMP: " + req.getParameter("ucPathId"));
+			}
+		} else if (StringUtils.isNotEmpty(req.getParameter("studentId"))) {
 			person.put("ALT_ID", "SID: " + req.getParameter("studentId"));
+		} else if (StringUtils.isNotEmpty(req.getParameter("externalId")) && req.getParameter("externalId").startsWith("H0")) {
+			person.put("ALT_ID", "EXT: " + req.getParameter("externalId"));
 		}
-		person.put("MEAL_CARD", null);
-		person.put("NOTES_1", null);
-		person.put("NOTES_2", null);
-		person.put("HR_TITLE", req.getParameter("title"));
+		if (StringUtils.isNotEmpty(req.getParameter("title"))) {
+			String title = req.getParameter("title").trim();
+			if (title.length() > 64) {
+				if (log.isDebugEnabled()) {
+					log.debug("Truncating Title to first 64 characters: " + title);
+				}
+				title = title.substring(0, 64);
+			}
+			person.put("HR_TITLE", title);
+		}
 		person.put("HR_DEPT", req.getParameter("deptName"));
 		person.put("HR_DEPTID", req.getParameter("deptId"));
-		person.put("HR_NOTES", null);
 		if (!"Y".equalsIgnoreCase(req.getParameter("isActive"))) {
 			person.put("HR_NOTES", "INACTIVE");
 		}
 		person.put("IAM_ID", req.getParameter("id"));
-		if (StringUtils.isEmpty(req.getParameter("ucPathId"))) {
-			person.put("SPONSOR", getUcpathId(req.getParameter("supervisor")));
-			if (StringUtils.isEmpty(person.get("SPONSOR"))) {
-				if (StringUtils.isNotEmpty(person.get("HR_DEPTID"))) {
-					person.put("SPONSOR", getDepartmentManager(person.get("HR_DEPTID")));
-				}
-			}
+		if (StringUtils.isEmpty(req.getParameter("ucPathId")) || !"UCDH".equalsIgnoreCase(req.getParameter("ucPathInstitution"))) {
+			person = processExternal(req, person, details);
 		} else {
 			person.put("SPONSOR", null);			
 		}
@@ -449,54 +500,151 @@ public class CardHolderUpdateServlet extends HttpServlet {
 	}
 
 	/**
-	 * <p>Returns the card holder id for the iam id passed.</p>
+	 * <p>Augments the new person object with data related to Externals</p>
 	 *
-	 * @param iamId the IAM ID of the person
-	 * @return the card holder id for the iam id passed
+	 * @param req the <code>HttpServletRequest</code> object
+	 * @param person the current person object
+	 * @return the augmented person object
 	 */
-	private String getCardholderId(String iamId) {
-		String cardholderId = null;
+	@SuppressWarnings("unchecked")
+	private JSONObject processExternal(HttpServletRequest req, JSONObject person, JSONObject details) {
+		if (includeExternals) {
+			if (activeBadgeGrant((String) person.get("IAM_ID"), details)) {
+				person.put("SPONSOR", getUcpathId(req.getParameter("supervisor"), details));
+				if (StringUtils.isEmpty((String) person.get("SPONSOR"))) {
+					person.put("SPONSOR", getUcpathId(req.getParameter("manager"), details));
+					if (StringUtils.isEmpty((String) person.get("SPONSOR"))) {
+						if (StringUtils.isNotEmpty((String) person.get("HR_DEPTID"))) {
+							person.put("SPONSOR", getUcpathId(getDepartmentManager((String) person.get("HR_DEPTID"), details), details));
+						}
+					}
+				}
+			} else {
+				person.put("bypassReason", "Externals without an active Badge Grant are not included");
+			}
+		} else {
+			person.put("bypassReason", "Externals are not included at this time");
+		}
+
+		return person;
+	}
+
+
+	/**
+	 * <p>Looks for an active Badge Grant for the specified External</p>
+	 *
+	 * @param id the IAM ID of the person
+	 * @param details the JSON object containing the details of this transaction
+	 * @return true if the External has an active Badge Grant
+	 */
+	private boolean activeBadgeGrant(String id, JSONObject details) {
+		boolean activeGrant = false;
 
 		if (log.isDebugEnabled()) {
-			log.debug("Searching for Card Holder ID for IAM ID #" + iamId + " ...");
+			log.debug("Checking for Badge Access Grant for " + id + " via ServiceNow");
 		}
-		Connection con = null;
-		PreparedStatement ps = null;
-		ResultSet rs = null;
+		String url = serviceNowServer + GRANT_FETCH_URL + id;
+		HttpGet get = new HttpGet(url);
+		get.setHeader(HttpHeaders.ACCEPT, "application/json");
 		try {
-			con = dataSource.getConnection();
-			ps = con.prepareStatement("SELECT ut_cardholder_id FROM udftext WHERE ut_udfgen_id=28 AND ut_text=?");
-			ps.setString(1, iamId);
-			rs = ps.executeQuery();
-			if (rs.next()) {
-				cardholderId = rs.getString(1);
-				if (log.isDebugEnabled()) {
-					log.debug("Found IAM ID #" + iamId + " on file with a cardholder ID of " + cardholderId);
+			get.addHeader(new BasicScheme(StandardCharsets.UTF_8).authenticate(new UsernamePasswordCredentials(serviceNowUser, serviceNowPassword), get, null));
+			HttpClient client = HttpClientProvider.getClient();
+			if (log.isDebugEnabled()) {
+				log.debug("Fetching external data using url " + url);
+			}
+			HttpResponse response = client.execute(get);
+			int rc = response.getStatusLine().getStatusCode();
+			String resp = "";
+			HttpEntity entity = response.getEntity();
+			if (entity != null) {
+				resp = EntityUtils.toString(entity);
+			}
+			if (log.isDebugEnabled()) {
+				log.debug("HTTP response code: " + rc);
+				log.debug("HTTP response: " + resp);
+			}
+			JSONObject result = (JSONObject) JSONValue.parse(resp);
+			if (rc == 200) {
+				JSONArray records = (JSONArray) result.get("result");
+				if (records != null && records.size() > 0) {
+					if (log.isDebugEnabled()) {
+						log.debug("Badge Access Grant found for IAM ID " + id);
+					}
+					activeGrant = true;
+				} else {
+					if (log.isDebugEnabled()) {
+						log.debug("Badge Access Grant not found on ServiceNow for IAM ID " + id);
+					}
 				}
+			} else {
+				log.error("Invalid HTTP Response Code returned when fetching Access Grant data for IAM ID " + id + ": " + rc);
+				eventService.logEvent(new Event(id, "Access Grant fetch error", "Invalid HTTP Response Code returned when fetching Access Grant data for IAM ID " + id + ": " + rc, details));
 			}
 		} catch (Exception e) {
-			log.error("Exception occurred while attempting to find Card Holder ID for IAM ID #" + iamId + ": " + e, e);
-		} finally {
-			if (rs != null) {
-				try {
-					rs.close();
-				} catch (Exception e) {
-					// no one cares!
+			log.error("Exception encountered when fetching Access Grant data for IAM ID " + id + ": " + e, e);
+			eventService.logEvent(new Event(id, "Access Grant fetch exception", "Exception encountered when fetching Access Grant data for IAM ID " + id + ": " + e, details, e));
+		}
+
+		return activeGrant;
+	}
+
+	/**
+	 * <p>Returns the card holder id for the iam id passed.</p>
+	 *
+	 * @param id the IAM ID of the person
+	 * @param details the JSON object containing the details of this transaction
+	 * @return the card holder id for the iam id passed
+	 */
+	private String getCardholderId(String id, JSONObject details) {
+		String cardholderId = null;
+
+		if (StringUtils.isNotEmpty(id)) {
+			if (log.isDebugEnabled()) {
+				log.debug("Searching for Card Holder ID for IAM ID #" + id + " ...");
+			}
+			Connection con = null;
+			PreparedStatement ps = null;
+			ResultSet rs = null;
+			try {
+				con = dataSource.getConnection();
+				ps = con.prepareStatement("SELECT ut_cardholder_id FROM udftext WHERE ut_udfgen_id=28 AND ut_text=?");
+				ps.setString(1, id);
+				rs = ps.executeQuery();
+				if (rs.next()) {
+					cardholderId = rs.getString(1);
+					if (log.isDebugEnabled()) {
+						log.debug("Found IAM ID #" + id + " on file with a cardholder ID of " + cardholderId);
+					}
+				}
+			} catch (Exception e) {
+				log.error("Exception occurred while attempting to find Card Holder ID for IAM ID #" + id + ": " + e, e);
+				eventService.logEvent(new Event(id, "Card Holder fetch exception", "Exception occurred while attempting to find Card Holder ID for IAM ID #" + id + ": " + e, details, e));
+			} finally {
+				if (rs != null) {
+					try {
+						rs.close();
+					} catch (Exception e) {
+						// no one cares!
+					}
+				}
+				if (ps != null) {
+					try {
+						ps.close();
+					} catch (Exception e) {
+						// no one cares!
+					}
+				}
+				if (con != null) {
+					try {
+						con.close();
+					} catch (Exception e) {
+						// no one cares!
+					}
 				}
 			}
-			if (ps != null) {
-				try {
-					ps.close();
-				} catch (Exception e) {
-					// no one cares!
-				}
-			}
-			if (con != null) {
-				try {
-					con.close();
-				} catch (Exception e) {
-					// no one cares!
-				}
+		} else {
+			if (log.isDebugEnabled()) {
+				log.debug("Unable to search for Card Holder ID for blank IAM ID");
 			}
 		}
 		if (log.isDebugEnabled()) {
@@ -507,12 +655,12 @@ public class CardHolderUpdateServlet extends HttpServlet {
 	}
 
 	/**
-	 * <p>Returns the ucpath id for the iam id passed.</p>
+	 * <p>Returns the UC Path ID for the IAM ID passed.</p>
 	 *
 	 * @param iamId the IAM ID of the person
-	 * @return the ucpath id for the iam id passed
+	 * @return the UC Path ID for the IAM ID passed
 	 */
-	private String getUcpathId(String iamId) {
+	private String getUcpathId(String iamId, JSONObject details) {
 		String ucPathId = null;
 
 		if (StringUtils.isNotEmpty(iamId)) {
@@ -535,6 +683,7 @@ public class CardHolderUpdateServlet extends HttpServlet {
 				}
 			} catch (Exception e) {
 				log.error("Exception occurred while attempting to find UCPath ID for IAM ID #" + iamId + ": " + e, e);
+				eventService.logEvent(new Event(iamId, "UC Path ID fetch exception", "Exception occurred while attempting to find UCPath ID for IAM ID #" + iamId + ": " + e, details, e));
 			} finally {
 				if (rs != null) {
 					try {
@@ -571,61 +720,68 @@ public class CardHolderUpdateServlet extends HttpServlet {
 	}
 
 	/**
-	 * <p>Returns the pps id for manager of the specified department.</p>
+	 * <p>Returns the IAM ID for the manager of the specified department.</p>
 	 *
-	 * @param deptId the id of the department
-	 * @return the pps id for manager of the specified department
+	 * @param deptId the ID of the department
+	 * @return the IAM ID for the manager of the specified department
 	 */
-	private String getDepartmentManager(String deptId) {
-		String ppsId = null;
+	private String getDepartmentManager(String deptId, JSONObject details) {
+		String iamId = null;
 
-		if (log.isDebugEnabled()) {
-			log.debug("Searching for PPS ID for Department ID " + deptId + " ...");
+		if (StringUtils.isNotEmpty(deptId)) {
+			if (log.isDebugEnabled()) {
+				log.debug("Searching for the IAM ID of the Manager for Department ID " + deptId + " ...");
+			}
+			Connection con = null;
+			PreparedStatement ps = null;
+			ResultSet rs = null;
+			try {
+				con = prDataSource.getConnection();
+				ps = con.prepareStatement("SELECT MANAGER FROM DEPARTMENT WHERE ALTERNATE_ID=?");
+				ps.setString(1, deptId);
+				rs = ps.executeQuery();
+				if (rs.next()) {
+					iamId = rs.getString(1);
+					if (log.isDebugEnabled()) {
+						log.debug("Found Department ID " + deptId + " on file with a Manager IAM ID of " + iamId);
+					}
+				}
+			} catch (Exception e) {
+				log.error("Exception occurred while attempting to find the IAM ID of the Manager for Department ID " + deptId + ": " + e, e);
+				eventService.logEvent(new Event(iamId, "Dept Manager fetch exception", "Exception occurred while attempting to find the IAM ID of the Manager for Department ID " + deptId + ": " + e, details, e));
+			} finally {
+				if (rs != null) {
+					try {
+						rs.close();
+					} catch (Exception e) {
+						// no one cares!
+					}
+				}
+				if (ps != null) {
+					try {
+						ps.close();
+					} catch (Exception e) {
+						// no one cares!
+					}
+				}
+				if (con != null) {
+					try {
+						con.close();
+					} catch (Exception e) {
+						// no one cares!
+					}
+				}
+			}
+		} else {
+			if (log.isDebugEnabled()) {
+				log.debug("Unable to search for Department Manager for blank Dept ID");
+			}
 		}
-		Connection con = null;
-		PreparedStatement ps = null;
-		ResultSet rs = null;
-		try {
-			con = smDataSource.getConnection();
-			ps = con.prepareStatement("SELECT b.USER_ID FROM DEPTM1 a LEFT OUTER JOIN CONTCTSM1 b ON b.CONTACT_NAME=a.UCD_DEPT_MGR AND b.ACTIVE='t' WHERE a.UCD_ACTIVE='t' AND a.DEPT_ID=?");
-			ps.setString(1, deptId);
-			rs = ps.executeQuery();
-			if (rs.next()) {
-				ppsId = rs.getString(1);
-				if (log.isDebugEnabled()) {
-					log.debug("Found Department ID " + deptId + " on file with a Manager PPS ID of " + ppsId);
-				}
-			}
-		} catch (Exception e) {
-			log.error("Exception occurred while attempting to find PPS ID for Department ID " + deptId + ": " + e, e);
-		} finally {
-			if (rs != null) {
-				try {
-					rs.close();
-				} catch (Exception e) {
-					// no one cares!
-				}
-			}
-			if (ps != null) {
-				try {
-					ps.close();
-				} catch (Exception e) {
-					// no one cares!
-				}
-			}
-			if (con != null) {
-				try {
-					con.close();
-				} catch (Exception e) {
-					// no one cares!
-				}
-			}
-		}
 		if (log.isDebugEnabled()) {
-			log.debug("Returning department manager ppsId: " + ppsId);
+			log.debug("Returning Department Manager IAM ID: " + iamId);
 		}
 
-		return ppsId;
+		return iamId;
 	}
 
 	/**
@@ -655,6 +811,7 @@ public class CardHolderUpdateServlet extends HttpServlet {
 			}
 		} catch (Exception e) {
 			log.error("Exception occurred while attempting to find index value for IAM UDF field: " + e, e);
+			eventService.logEvent(new Event("CardHolderUpdateServlet", "IAM UDF index fetch exception", "Exception occurred while attempting to find index value for IAM UDF field: " + e, new JSONObject(), e));
 		} finally {
 			if (rs != null) {
 				try {
@@ -724,8 +881,8 @@ public class CardHolderUpdateServlet extends HttpServlet {
 	 * @param errorCode the error code to send
 	 * @param errorMessage the error message to send
 	 */
-	protected void sendError(HttpServletRequest req, HttpServletResponse res, int errorCode, String errorMessage) throws IOException {
-		sendError(req, res, errorCode, errorMessage, null);
+	protected void sendError(HttpServletRequest req, HttpServletResponse res, int errorCode, String errorMessage, JSONObject details) throws IOException {
+		sendError(req, res, errorCode, errorMessage, details, null);
 	}
 
 	/**
@@ -737,13 +894,21 @@ public class CardHolderUpdateServlet extends HttpServlet {
 	 * @param errorMessage the error message to send
 	 * @param throwable an optional exception
 	 */
-	protected void sendError(HttpServletRequest req, HttpServletResponse res, int errorCode, String errorMessage, Throwable throwable) throws IOException {
+	protected void sendError(HttpServletRequest req, HttpServletResponse res, int errorCode, String errorMessage, JSONObject details, Throwable throwable) throws IOException {
 		// log message
 		if (throwable != null) {
 			log.error("Sending error " + errorCode + "; message=" + errorMessage, throwable);
 		} else if (log.isDebugEnabled()) {
 			log.debug("Sending error " + errorCode + "; message=" + errorMessage);
 		}
+
+		// verify details
+		if (details == null) {
+			details = new JSONObject();
+		}
+
+		// log event
+		eventService.logEvent(new Event((String) details.get("id"), "HTTP response", "Sending error " + errorCode + "; message=" + errorMessage, details, throwable));
 
 		// send error
 		res.setContentType("text/plain;charset=UTF-8");
