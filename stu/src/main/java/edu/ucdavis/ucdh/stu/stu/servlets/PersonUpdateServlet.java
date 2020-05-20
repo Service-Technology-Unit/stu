@@ -1257,59 +1257,67 @@ public class PersonUpdateServlet extends SubscriberServlet {
 				log.debug("HTTP response code: " + rc);
 				log.debug("HTTP response: " + resp);
 			}
-			JSONObject result = (JSONObject) JSONValue.parse(resp);
-			if (rc != 200) {
-				if (log.isDebugEnabled()) {
-					log.debug("Invalid HTTP Response Code returned when fetching external data for person " + id + ": " + rc);
-				}
-			}
-			JSONArray records = (JSONArray) result.get("result");
-			if (records == null || records.size() == 0) {
-				if (StringUtils.isNotEmpty(externalId)) {
-					records = getExternalDataByExternalId(externalId, details);
-				}
-			}
-			if (records != null && records.size() > 0) {
-				JSONObject external = (JSONObject) records.get(0);
-				if (log.isDebugEnabled()) {
-					log.debug("External found for person " + id + ": " + external.toJSONString());
-				}
-				String extExternalId = (String) external.get("external_id");
-				if (StringUtils.isEmpty(extExternalId)) {
-					extExternalId = (String) external.get("number");
-				}
-				if (StringUtils.isEmpty(externalId) || !externalId.startsWith("H00")) {
-					externalId = extExternalId;
-					newPerson.put("EXTERNAL_ID", externalId);
-				}
-				if (StringUtils.isNotEmpty((String) external.get("title"))) {
-					newPerson.put("TITLE", (String) external.get("title"));
-				}
-				if (StringUtils.isNotEmpty((String) external.get("supervisor.employee_number"))) {
-					newPerson.put("SUPERVISOR", (String) external.get("supervisor.employee_number"));
-				}
-				if (StringUtils.isNotEmpty((String) external.get("department.u_id_6"))) {
-					newPerson.put("HS_DEPT_ID", (String) external.get("department.u_id_6"));
-				}
-				if (StringUtils.isNotEmpty((String) external.get("phone"))) {
-					newPerson.put("PHONE_NUMBER", fixTelephoneNumber((String) external.get("phone")));
-				}
-				if (StringUtils.isNotEmpty((String) external.get("location.u_location_code"))) {
-					newPerson.put("LOCATION_CODE", (String) external.get("location.u_location_code"));
-				}
-				String email = (String) external.get("email");
-				if (StringUtils.isNotEmpty(email)) {
-					email = fixEmail(email);
-					if (email.endsWith("ucdavis.edu")) {
-						newPerson.put("EMAIL", email);
+			if (rc == 200) {
+				if (StringUtils.isNotEmpty(resp)) {
+					JSONObject result = (JSONObject) JSONValue.parse(resp);
+					JSONArray records = (JSONArray) result.get("result");
+					if (records == null || records.size() == 0) {
+						if (StringUtils.isNotEmpty(externalId)) {
+							records = getExternalDataByExternalId(externalId, details);
+						}
+					}
+					if (records != null && records.size() > 0) {
+						JSONObject external = (JSONObject) records.get(0);
+						if (log.isDebugEnabled()) {
+							log.debug("External found for person " + id + ": " + external.toJSONString());
+						}
+						String extExternalId = (String) external.get("external_id");
+						if (StringUtils.isEmpty(extExternalId)) {
+							extExternalId = (String) external.get("number");
+						}
+						if (StringUtils.isEmpty(externalId) || !externalId.startsWith("H00")) {
+							externalId = extExternalId;
+							newPerson.put("EXTERNAL_ID", externalId);
+						}
+						if (StringUtils.isNotEmpty((String) external.get("title"))) {
+							newPerson.put("TITLE", (String) external.get("title"));
+						}
+						if (StringUtils.isNotEmpty((String) external.get("supervisor.employee_number"))) {
+							newPerson.put("SUPERVISOR", (String) external.get("supervisor.employee_number"));
+						}
+						if (StringUtils.isNotEmpty((String) external.get("department.u_id_6"))) {
+							newPerson.put("HS_DEPT_ID", (String) external.get("department.u_id_6"));
+						}
+						if (StringUtils.isNotEmpty((String) external.get("phone"))) {
+							newPerson.put("PHONE_NUMBER", fixTelephoneNumber((String) external.get("phone")));
+						}
+						if (StringUtils.isNotEmpty((String) external.get("location.u_location_code"))) {
+							newPerson.put("LOCATION_CODE", (String) external.get("location.u_location_code"));
+						}
+						String email = (String) external.get("email");
+						if (StringUtils.isNotEmpty(email)) {
+							email = fixEmail(email);
+							if (email.endsWith("ucdavis.edu")) {
+								newPerson.put("EMAIL", email);
+							} else {
+								newPerson.put("ALTERNATE_EMAIL", email);
+							}
+						}
 					} else {
-						newPerson.put("ALTERNATE_EMAIL", email);
+						if (log.isDebugEnabled()) {
+							log.debug("External not found on ServiceNow for person " + id);
+						}
+					}
+				} else {
+					if (log.isDebugEnabled()) {
+						log.debug("External not found on ServiceNow for person " + id);
 					}
 				}
 			} else {
-				if (log.isDebugEnabled()) {
-					log.debug("External not found on ServiceNow for person " + id);
-				}
+				details.put("responseCode", rc + "");
+				details.put("responseBody", resp);
+				log.error("Invalid HTTP Response Code returned when fetching external data for person " + id + ": " + rc);
+				eventService.logEvent(new Event(id, "Identity fetch error", "Invalid HTTP Response Code returned when fetching external data for person " + id + ": " + rc, details));
 			}
 		} catch (Exception e) {
 			log.error("Exception encountered searching for external for person " + id + ": " + e, e);
@@ -1329,6 +1337,7 @@ public class PersonUpdateServlet extends SubscriberServlet {
 	 * @param details
 	 * @return the array of ServiceNow External Identity records
 	 */
+	@SuppressWarnings("unchecked")
 	private JSONArray getExternalDataByExternalId(String externalId, JSONObject details) {
 		JSONArray records = null;
 
@@ -1355,22 +1364,30 @@ public class PersonUpdateServlet extends SubscriberServlet {
 				log.debug("HTTP response code: " + rc);
 				log.debug("HTTP response: " + resp);
 			}
-			JSONObject result = (JSONObject) JSONValue.parse(resp);
-			if (rc != 200) {
-				if (log.isDebugEnabled()) {
-					log.debug("Invalid HTTP Response Code returned when fetching external data for External ID " + externalId + ": " + rc);
-				}
-			}
-			records = (JSONArray) result.get("result");
-			if (records != null && records.size() > 0) {
-				JSONObject external = (JSONObject) records.get(0);
-				if (log.isDebugEnabled()) {
-					log.debug("External found for External ID " + externalId + ": " + external.toJSONString());
+			if (rc == 200) {
+				if (StringUtils.isNotEmpty(resp)) {
+					JSONObject result = (JSONObject) JSONValue.parse(resp);
+					records = (JSONArray) result.get("result");
+					if (records != null && records.size() > 0) {
+						JSONObject external = (JSONObject) records.get(0);
+						if (log.isDebugEnabled()) {
+							log.debug("External found for External ID " + externalId + ": " + external.toJSONString());
+						}
+					} else {
+						if (log.isDebugEnabled()) {
+							log.debug("External not found on ServiceNow for External ID " + externalId);
+						}
+					}
+				} else {
+					if (log.isDebugEnabled()) {
+						log.debug("External not found on ServiceNow for External ID " + externalId);
+					}
 				}
 			} else {
-				if (log.isDebugEnabled()) {
-					log.debug("External not found on ServiceNow for External ID " + externalId);
-				}
+				details.put("responseCode", rc + "");
+				details.put("responseBody", resp);
+				log.error("Invalid HTTP Response Code returned when fetching external data for External ID " + externalId + ": " + rc);
+				eventService.logEvent(new Event(externalId, "Identity fetch error", "Invalid HTTP Response Code returned when fetching external data for External ID " + externalId + ": " + rc, details));
 			}
 		} catch (Exception e) {
 			log.error("Exception encountered searching for external with External ID " + externalId + ": " + e, e);
@@ -1656,34 +1673,42 @@ public class PersonUpdateServlet extends SubscriberServlet {
 				log.debug("HTTP response code: " + rc);
 				log.debug("HTTP response: " + resp);
 			}
-			JSONObject result = (JSONObject) JSONValue.parse(resp);
-			if (rc != 200) {
-				if (log.isDebugEnabled()) {
-					log.debug("Invalid HTTP Response Code returned when fetching external data for External ID " + idValue + ": " + rc);
-				}
-			}
-			JSONArray records = (JSONArray) result.get("result");
-			if (records != null && records.size() > 0) {
-				JSONObject external = (JSONObject) records.get(0);
-				if (log.isDebugEnabled()) {
-					log.debug("External found for External ID " + idValue + ": " + external.toJSONString());
-				}
-				thisId.put("START_DATE", (String) external.get("start_date"));
-				String endDate = (String) external.get("end_date");
-				if (StringUtils.isNotEmpty(endDate) && endDate.compareTo(DATE_FORMAT.format(new Date())) < 0) {
-					thisId.put("IS_ACTIVE", "N");
+			if (rc == 200) {
+				if (StringUtils.isNotEmpty(resp)) {
+					JSONObject result = (JSONObject) JSONValue.parse(resp);
+					JSONArray records = (JSONArray) result.get("result");
+					if (records != null && records.size() > 0) {
+						JSONObject external = (JSONObject) records.get(0);
+						if (log.isDebugEnabled()) {
+							log.debug("External found for External ID " + idValue + ": " + external.toJSONString());
+						}
+						thisId.put("START_DATE", (String) external.get("start_date"));
+						String endDate = (String) external.get("end_date");
+						if (StringUtils.isNotEmpty(endDate) && endDate.compareTo(DATE_FORMAT.format(new Date())) < 0) {
+							thisId.put("IS_ACTIVE", "N");
+						} else {
+							thisId.put("END_DATE", null);
+							thisId.put("IS_ACTIVE", "Y");
+						}
+					} else {
+						if (log.isDebugEnabled()) {
+							log.debug("External not found on ServiceNow for External ID " + idValue);
+						}
+					}
 				} else {
-					thisId.put("END_DATE", null);
-					thisId.put("IS_ACTIVE", "Y");
+					if (log.isDebugEnabled()) {
+						log.debug("External not found on ServiceNow for External ID " + idValue);
+					}
 				}
 			} else {
-				if (log.isDebugEnabled()) {
-					log.debug("External not found on ServiceNow for External ID " + idValue);
-				}
+				details.put("responseCode", rc + "");
+				details.put("responseBody", resp);
+				log.error("Invalid HTTP Response Code returned when fetching external data for external with External ID " + idValue + ": " + rc);
+				eventService.logEvent(new Event(idValue, "External fetch error", "Invalid HTTP Response Code returned when fetching external data for external with External ID " + idValue + ": " + rc, details));
 			}
 		} catch (Exception e) {
 			log.error("Exception encountered searching for external with External ID " + idValue + ": " + e, e);
-			eventService.logEvent(new Event(idValue, "Exception fetch exception", "Exception encountered searching for external with External ID " + idValue + ": " + e, details, e));
+			eventService.logEvent(new Event(idValue, "External fetch exception", "Exception encountered searching for external with External ID " + idValue + ": " + e, details, e));
 		}
 	}
 
