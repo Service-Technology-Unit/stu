@@ -127,7 +127,7 @@ public class PersonUpdateServlet extends SubscriberServlet {
 		}
 
 		if (response.startsWith("0;") || "force".equalsIgnoreCase(action)) {
-			String publishAction = action;
+			String publishAction = action.toLowerCase();
 			if (!"force".equalsIgnoreCase(action)) {
 				publishAction = "change";
 				if (response.indexOf("inserted") != -1) {
@@ -494,6 +494,9 @@ public class PersonUpdateServlet extends SubscriberServlet {
 				thisId.put("IS_PRIMARY", "Y");
 			}
 		}
+		if ("delete".equalsIgnoreCase(req.getParameter("_action"))) {
+			personActive = false;
+		}
 		if (personActive) {
 			if (ucdhEmployee) {
 				startDate = (String) ((JSONObject) ((JSONArray) ids.get("UC PATH")).get(0)).get("START_DATE");
@@ -772,6 +775,9 @@ public class PersonUpdateServlet extends SubscriberServlet {
 					}
 				}
 			}
+		}
+		if ("delete".equalsIgnoreCase(req.getParameter("_action"))) {
+			personActive = false;
 		}
 
 		// update database

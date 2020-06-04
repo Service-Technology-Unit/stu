@@ -132,7 +132,7 @@ public class CardHolderUpdateServlet extends HttpServlet {
 						JSONObject newPerson = buildPersonFromRequest(req, details);
 						details.put("newPerson", newPerson);
 						if (StringUtils.isEmpty((String) newPerson.get("bypassReason"))) {
-							Map<String,String> oldPerson = fetchCardholder(id, req.getParameter("ucPathId"), details);
+							Map<String,String> oldPerson = fetchCardholder(id, (String) newPerson.get("UNIQUE_KEY"), details);
 							if (oldPerson != null) {
 								details.put("oldPerson", oldPerson);
 								if (!action.equalsIgnoreCase("force") && personUnchanged(req, newPerson, oldPerson)) {
@@ -182,7 +182,7 @@ public class CardHolderUpdateServlet extends HttpServlet {
 	 * @param details the JSON object containing the details of this transaction
 	 * @return the cardholder's data from the card key system
 	 */
-	private Map<String,String> fetchCardholder(String id, String ucPathId, JSONObject details) {
+	private Map<String,String> fetchCardholder(String id, String key, JSONObject details) {
 		Map<String,String> person = null;
 
 		if (log.isDebugEnabled()) {
@@ -191,69 +191,43 @@ public class CardHolderUpdateServlet extends HttpServlet {
 		Connection con = null;
 		PreparedStatement ps = null;
 		ResultSet rs = null;
-		String cardholderId = getCardholderId(id, details);
 		try {
 			con = dataSource.getConnection();
-			if (StringUtils.isEmpty(cardholderId)) {
-				if (StringUtils.isNotEmpty(ucPathId)) {
-					ps = con.prepareStatement("SELECT c_id FROM cardholder WHERE c_nick_name=?");
-					ps.setString(1, ucPathId);
-					rs = ps.executeQuery();
-					if (rs.next()) {
-						cardholderId = rs.getString(1);
-						if (log.isDebugEnabled()) {
-							log.debug("Found UCPath ID #" + ucPathId + " on file with a cardholder ID of " + cardholderId);
-						}
-						try {
-							rs.close();
-						} catch (Exception e) {
-							// no one cares!
-						}
-						try {
-							ps.close();
-						} catch (Exception e) {
-							// no one cares!
-						}
-					}
+			ps = con.prepareStatement("SELECT c_id, c_lname, c_fname, c_mname, c_nick_name, c_addr, c_addr1, c_addr2, c_addr3, c_suite, c_phone, c_email, c_s_timestamp, c_t_timestamp, c_sponsor_id FROM cardholder WHERE c_nick_name=?");
+			ps.setString(1, key);
+			rs = ps.executeQuery();
+			if (rs.next()) {
+				person = new HashMap<String,String>();
+				person.put("CARDHOLDER_ID", nullify(rs.getString("c_id")));
+				person.put("LAST_NAME", nullify(rs.getString("c_lname")));
+				person.put("FIRST_NAME", nullify(rs.getString("c_fname")));
+				person.put("MIDDLE_NAME", nullify(rs.getString("c_mname")));
+				person.put("UC_PATH_ID", nullify(rs.getString("c_nick_name")));
+				person.put("ADDRESS", nullify(rs.getString("c_addr")));
+				person.put("CITY", nullify(rs.getString("c_addr1")));
+				person.put("STATE", nullify(rs.getString("c_addr2")));
+				person.put("ZIP", nullify(rs.getString("c_addr3")));
+				person.put("ROOM", nullify(rs.getString("c_suite")));
+				person.put("PHONE", nullify(rs.getString("c_phone")));
+				person.put("EMAIL", nullify(rs.getString("c_email")));
+				person.put("VALID_FROM", nullify(rs.getString("c_s_timestamp")));
+				person.put("VALID_TO", nullify(rs.getString("c_t_timestamp")));
+				person.put("SPONSOR", nullify(rs.getString("c_sponsor_id")));
+				try {
+					rs.close();
+				} catch (Exception e) {
+					// no one cares!
 				}
-			}
-			if (StringUtils.isNotEmpty(cardholderId)) {
-				ps = con.prepareStatement("SELECT c_lname, c_fname, c_mname, c_nick_name, c_addr, c_addr1, c_addr2, c_addr3, c_suite, c_phone, c_email, c_s_timestamp, c_t_timestamp, c_sponsor_id FROM cardholder WHERE c_id=?");
-				ps.setString(1, cardholderId);
+				try {
+					ps.close();
+				} catch (Exception e) {
+					// no one cares!
+				}
+				ps = con.prepareStatement("SELECT LTRIM(RTRIM(a.ug_label)) AS LABEL, LTRIM(RTRIM(b.ut_text)) AS VALUE FROM udfgen a LEFT OUTER JOIN udftext b ON b.ut_udfgen_id=a.ug_id AND b.ut_cardholder_id=? WHERE a.ug_hidefrommis=0 ORDER BY a.ug_order");
+				ps.setString(1, person.get("CARDHOLDER_ID"));
 				rs = ps.executeQuery();
-				if (rs.next()) {
-					person = new HashMap<String,String>();
-					person.put("CARDHOLDER_ID", cardholderId);
-					person.put("LAST_NAME", nullify(rs.getString("c_lname")));
-					person.put("FIRST_NAME", nullify(rs.getString("c_fname")));
-					person.put("MIDDLE_NAME", nullify(rs.getString("c_mname")));
-					person.put("UC_PATH_ID", nullify(rs.getString("c_nick_name")));
-					person.put("ADDRESS", nullify(rs.getString("c_addr")));
-					person.put("CITY", nullify(rs.getString("c_addr1")));
-					person.put("STATE", nullify(rs.getString("c_addr2")));
-					person.put("ZIP", nullify(rs.getString("c_addr3")));
-					person.put("ROOM", nullify(rs.getString("c_suite")));
-					person.put("PHONE", nullify(rs.getString("c_phone")));
-					person.put("EMAIL", nullify(rs.getString("c_email")));
-					person.put("VALID_FROM", nullify(rs.getString("c_s_timestamp")));
-					person.put("VALID_TO", nullify(rs.getString("c_t_timestamp")));
-					person.put("SPONSOR", nullify(rs.getString("c_sponsor_id")));
-					try {
-						rs.close();
-					} catch (Exception e) {
-						// no one cares!
-					}
-					try {
-						ps.close();
-					} catch (Exception e) {
-						// no one cares!
-					}
-					ps = con.prepareStatement("SELECT LTRIM(RTRIM(a.ug_label)) AS LABEL, LTRIM(RTRIM(b.ut_text)) AS VALUE FROM udfgen a LEFT OUTER JOIN udftext b ON b.ut_udfgen_id=a.ug_id AND b.ut_cardholder_id=? WHERE a.ug_hidefrommis=0 ORDER BY a.ug_order");
-					ps.setString(1, cardholderId);
-					rs = ps.executeQuery();
-					while (rs.next()) {
-						person.put(rs.getString("LABEL"), rs.getString("VALUE"));
-					}
+				while (rs.next()) {
+					person.put(rs.getString("LABEL"), rs.getString("VALUE"));
 				}
 			}
 		} catch (Exception e) {
@@ -339,10 +313,6 @@ public class CardHolderUpdateServlet extends HttpServlet {
 			if (StringUtils.isNotEmpty(oldPerson.get("CARDHOLDER_ID"))) {
 				cardholderId = oldPerson.get("CARDHOLDER_ID");
 			}
-			if (StringUtils.isEmpty(newPerson.get("UC_PATH_ID"))) {
-				newPerson.put("UC_PATH_ID", oldPerson.get("UC_PATH_ID"));
-				newPerson.put("EMP_ID", oldPerson.get("UC_PATH_ID"));
-			}
 			if (StringUtils.isEmpty(newPerson.get("HR_DEPTID"))) {
 				newPerson.put("HR_DEPT", oldPerson.get("HR_DEPT"));
 				newPerson.put("HR_DEPTID", oldPerson.get("HR_DEPTID"));
@@ -365,7 +335,7 @@ public class CardHolderUpdateServlet extends HttpServlet {
 			ps.setString(3, nullify(newPerson.get("FIRST_NAME")));
 			ps.setString(4, nullify(newPerson.get("MIDDLE_NAME")));
 			ps.setString(5, nullify(newPerson.get("LAST_NAME")));
-			ps.setString(6, nullify(newPerson.get("UC_PATH_ID")));
+			ps.setString(6, nullify(newPerson.get("UNIQUE_KEY")));
 			ps.setString(7, nullify(newPerson.get("ADDRESS")));
 			ps.setString(8, nullify(newPerson.get("CITY")));
 			ps.setString(9, nullify(newPerson.get("STATE")));
@@ -403,6 +373,8 @@ public class CardHolderUpdateServlet extends HttpServlet {
 				response = "0;Update added to the pending work queue";
 			} else {
 				response = "1;Unable to add update to the pending work queue";
+				log.error("Unable to add update to the pending work queue");
+				eventService.logEvent(new Event(newPerson.get("IAM_ID"), "Card Holder update error", "Unable to add update to the pending work queue", details));
 			}
 		} catch (Exception e) {
 			response = "2;Exception occurred while attempting to add to the pending work queue: " + e;
@@ -464,12 +436,22 @@ public class CardHolderUpdateServlet extends HttpServlet {
 			if ("UCDH".equalsIgnoreCase(req.getParameter("ucPathInstitution"))) {
 				person.put("EMP_ID", req.getParameter("ucPathId"));
 			} else {
-				person.put("ALT_ID", "CMP: " + req.getParameter("ucPathId"));
+				person.put("ALT_ID", "CMP:" + req.getParameter("ucPathId"));
 			}
-		} else if (StringUtils.isNotEmpty(req.getParameter("studentId"))) {
-			person.put("ALT_ID", "SID: " + req.getParameter("studentId"));
-		} else if (StringUtils.isNotEmpty(req.getParameter("externalId")) && req.getParameter("externalId").startsWith("H0")) {
-			person.put("ALT_ID", "EXT: " + req.getParameter("externalId"));
+		}
+		if (StringUtils.isEmpty((String) person.get("ALT_ID"))) {
+			if (StringUtils.isNotEmpty(req.getParameter("studentId"))) {
+				person.put("ALT_ID", "STU:" + req.getParameter("studentId"));
+			} else if (StringUtils.isNotEmpty(req.getParameter("externalId")) && req.getParameter("externalId").startsWith("H0")) {
+				person.put("ALT_ID", "EXT:" + req.getParameter("externalId"));
+			} else if (StringUtils.isEmpty((String) person.get("EMP_ID"))) {
+				person.put("ALT_ID", "IAM:" + req.getParameter("id"));
+			}
+		}
+		if (StringUtils.isNotEmpty((String) person.get("EMP_ID"))) {
+			person.put("UNIQUE_KEY", (String) person.get("EMP_ID"));
+		} else {
+			person.put("UNIQUE_KEY", (String) person.get("ALT_ID"));
 		}
 		if (StringUtils.isNotEmpty(req.getParameter("title"))) {
 			String title = req.getParameter("title").trim();
@@ -586,72 +568,6 @@ public class CardHolderUpdateServlet extends HttpServlet {
 		}
 
 		return activeGrant;
-	}
-
-	/**
-	 * <p>Returns the card holder id for the iam id passed.</p>
-	 *
-	 * @param id the IAM ID of the person
-	 * @param details the JSON object containing the details of this transaction
-	 * @return the card holder id for the iam id passed
-	 */
-	private String getCardholderId(String id, JSONObject details) {
-		String cardholderId = null;
-
-		if (StringUtils.isNotEmpty(id)) {
-			if (log.isDebugEnabled()) {
-				log.debug("Searching for Card Holder ID for IAM ID #" + id + " ...");
-			}
-			Connection con = null;
-			PreparedStatement ps = null;
-			ResultSet rs = null;
-			try {
-				con = dataSource.getConnection();
-				ps = con.prepareStatement("SELECT ut_cardholder_id FROM udftext WHERE ut_udfgen_id=28 AND ut_text=?");
-				ps.setString(1, id);
-				rs = ps.executeQuery();
-				if (rs.next()) {
-					cardholderId = rs.getString(1);
-					if (log.isDebugEnabled()) {
-						log.debug("Found IAM ID #" + id + " on file with a cardholder ID of " + cardholderId);
-					}
-				}
-			} catch (Exception e) {
-				log.error("Exception occurred while attempting to find Card Holder ID for IAM ID #" + id + ": " + e, e);
-				eventService.logEvent(new Event(id, "Card Holder fetch exception", "Exception occurred while attempting to find Card Holder ID for IAM ID #" + id + ": " + e, details, e));
-			} finally {
-				if (rs != null) {
-					try {
-						rs.close();
-					} catch (Exception e) {
-						// no one cares!
-					}
-				}
-				if (ps != null) {
-					try {
-						ps.close();
-					} catch (Exception e) {
-						// no one cares!
-					}
-				}
-				if (con != null) {
-					try {
-						con.close();
-					} catch (Exception e) {
-						// no one cares!
-					}
-				}
-			}
-		} else {
-			if (log.isDebugEnabled()) {
-				log.debug("Unable to search for Card Holder ID for blank IAM ID");
-			}
-		}
-		if (log.isDebugEnabled()) {
-			log.debug("Returning cardholderId: " + cardholderId);
-		}
-
-		return cardholderId;
 	}
 
 	/**
