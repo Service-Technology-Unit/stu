@@ -6,7 +6,6 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -26,6 +25,8 @@ import org.apache.http.HttpResponse;
 import org.apache.http.auth.UsernamePasswordCredentials;
 import org.apache.http.client.HttpClient;
 import org.apache.http.client.methods.HttpGet;
+import org.apache.http.client.methods.HttpPost;
+import org.apache.http.entity.StringEntity;
 import org.apache.http.impl.auth.BasicScheme;
 import org.apache.http.util.EntityUtils;
 import org.json.simple.JSONArray;
@@ -40,8 +41,11 @@ import edu.ucdavis.ucdh.stu.snutil.util.EventService;
 /**
  * <p>This servlet updates the CardKey cardholder database with data from the UCDH Person Repository.</p>
  */
-public class CardHolderUpdateServlet extends HttpServlet {
+public class LenelCardHolderUpdateServlet extends HttpServlet {
 	private static final long serialVersionUID = 1;
+	private static final String AUTH_URL = "/api/access/onguard/openaccess/authentication?version=1.0";
+	private static final String FETCH_URL = "/api/access/onguard/openaccess/instances?version=1.0&type_name=Lnl_Cardholder&filter=IAMID%3D";
+	private static final String UPDATE_URL = "/api/access/onguard/openaccess/instances?version=1.0";
 	private static final String GRANT_FETCH_URL = "/api/now/table/x_ucdhs_access_gra_access_grant?sysparm_fields=status&sysparm_query=grant.nameLIKEbadge%5Estatus%3Dactive%5Euser.employee_number%3D";
 	private Log log = LogFactory.getLog(getClass());
 	private int iamIdIndex = -1;
@@ -50,6 +54,11 @@ public class CardHolderUpdateServlet extends HttpServlet {
 	private String serviceNowServer = null;
 	private String serviceNowUser = null;
 	private String serviceNowPassword = null;
+	private String lenelServer = null;
+	private String lenelUser = null;
+	private String lenelPassword = null;
+	private String lenelDirectory = null;
+	private String lenelApplicationId = null;
 	private EventService eventService = null;
 	private List<String> authorizedIp = new ArrayList<String>();
 	private DataSource dataSource = null;
@@ -76,10 +85,14 @@ public class CardHolderUpdateServlet extends HttpServlet {
 		serviceNowServer = (String) WebApplicationContextUtils.getRequiredWebApplicationContext(config.getServletContext()).getBean("serviceNowServer");
 		serviceNowUser = (String) WebApplicationContextUtils.getRequiredWebApplicationContext(config.getServletContext()).getBean("serviceNowUser");
 		serviceNowPassword = (String) WebApplicationContextUtils.getRequiredWebApplicationContext(config.getServletContext()).getBean("serviceNowPassword");
+		lenelServer = (String) WebApplicationContextUtils.getRequiredWebApplicationContext(config.getServletContext()).getBean("lenelServer");
+		lenelUser = (String) WebApplicationContextUtils.getRequiredWebApplicationContext(config.getServletContext()).getBean("lenelUser");
+		lenelPassword = (String) WebApplicationContextUtils.getRequiredWebApplicationContext(config.getServletContext()).getBean("lenelPassword");
+		lenelDirectory = (String) WebApplicationContextUtils.getRequiredWebApplicationContext(config.getServletContext()).getBean("lenelDirectory");
+		lenelApplicationId = (String) WebApplicationContextUtils.getRequiredWebApplicationContext(config.getServletContext()).getBean("lenelApplicationId");
 		eventService = (EventService) WebApplicationContextUtils.getRequiredWebApplicationContext(config.getServletContext()).getBean("eventService");
 		dataSource = (DataSource) WebApplicationContextUtils.getRequiredWebApplicationContext(config.getServletContext()).getBean("cardKeyDataSource");
 		prDataSource = (DataSource) WebApplicationContextUtils.getRequiredWebApplicationContext(config.getServletContext()).getBean("masterDataSource");
-		iamIdIndex = fetchIamIdIndex();
 	}
 
 	/**
@@ -129,32 +142,31 @@ public class CardHolderUpdateServlet extends HttpServlet {
 			if (StringUtils.isNotEmpty(action)) {
 				if (action.equalsIgnoreCase("add") || action.equalsIgnoreCase("change") || action.equalsIgnoreCase("delete") || action.equalsIgnoreCase("force")) {
 					if (StringUtils.isNotEmpty(id)) {
-						JSONObject newPerson = buildPersonFromRequest(req, details);
-						details.put("newPerson", newPerson);
-						if (StringUtils.isEmpty((String) newPerson.get("bypassReason"))) {
-							Map<String,String> oldPerson = fetchCardholder(id, (String) newPerson.get("UNIQUE_KEY"), details);
+						details.put("sessionToken", getSessionToken(details));
+						JSONObject person = buildPersonFromRequest(req, details);
+						details.put("person", person);
+						if (StringUtils.isEmpty((String) person.get("bypassReason"))) {
+							Map<String,String> oldPerson = fetchCardholder(id, (String) person.get("UNIQUE_KEY"), details);
 							if (oldPerson != null) {
 								details.put("oldPerson", oldPerson);
-								if (!action.equalsIgnoreCase("force") && personUnchanged(req, newPerson, oldPerson)) {
+								if (!action.equalsIgnoreCase("force") && personUnchanged(req, person, oldPerson)) {
 									response = "1;No action taken -- no changes detected";
 								} else {
-									response = updateCardholder(req, res, newPerson, oldPerson, details);
+									response = updateCardholder(req, res, person, oldPerson, details);
 								}
 							} else {
 								if (action.equalsIgnoreCase("delete")) {
 									response = "1;No action taken -- person not on file";
 								} else {
-									if ("INACTIVE".equalsIgnoreCase((String) newPerson.get("HR_NOTES"))) {
+									if ("INACTIVE".equalsIgnoreCase((String) person.get("HR_NOTES"))) {
 										response = "1;No action taken -- INACTIVE persons are not inserted";
-									} else if (!((String) newPerson.get("HR_DEPTID")).startsWith("92") && !((String) newPerson.get("HR_DEPTID")).startsWith("93") && !((String) newPerson.get("HR_DEPTID")).startsWith("049")) {
-										response = "1;No action taken -- " + newPerson.get("HR_DEPTID") + " is not a UCDH Department";
 									} else {
-										response = updateCardholder(req, res, newPerson, null, details);
+										response = updateCardholder(req, res, person, null, details);
 									}
 								}
 							}
 						} else {
-							response = "1;No action taken -- " + newPerson.get("bypassReason");
+							response = "1;No action taken -- " + person.get("bypassReason");
 						}
 					} else {
 						response = "2;Error - Required parameter \"id\" has no value";
@@ -177,6 +189,72 @@ public class CardHolderUpdateServlet extends HttpServlet {
 	}
 
 	/**
+	 * <p>Returns the Lenel session token provided by authenticating to the Lenel REST API.</p>
+	 *
+	 * @param details the JSON object containing the details of this transaction
+	 * @return the Lenel session token
+	 */
+	@SuppressWarnings("unchecked")
+	private String getSessionToken(JSONObject details) {
+		String token = null;
+
+		if (log.isDebugEnabled()) {
+			log.debug("Authenticating to Lenel to obtain a valid session token");
+		}
+
+		String url = lenelServer + AUTH_URL;
+		HttpPost post = new HttpPost(url);
+		post.setHeader(HttpHeaders.ACCEPT, "application/json");
+		post.setHeader(HttpHeaders.CONTENT_TYPE, "application/json");
+		post.setHeader("Application-Id", lenelApplicationId);
+		JSONObject postData = new JSONObject();
+		postData.put("user_name", lenelUser);
+		postData.put("password", lenelPassword);
+		postData.put("directory_id", lenelDirectory);
+		try {
+			HttpClient client = HttpClientProvider.getClient();
+			if (log.isDebugEnabled()) {
+				log.debug("Authenticating to Lenel to obtain a valid session token using url " + url);
+			}
+			post.setEntity(new StringEntity(postData.toJSONString(), "utf-8"));
+			HttpResponse response = client.execute(post);
+			int rc = response.getStatusLine().getStatusCode();
+			String resp = "";
+			HttpEntity entity = response.getEntity();
+			if (entity != null) {
+				resp = EntityUtils.toString(entity);
+			}
+			if (log.isDebugEnabled()) {
+				log.debug("HTTP response code: " + rc);
+				log.debug("HTTP response: " + resp);
+			}
+			JSONObject result = (JSONObject) JSONValue.parse(resp);
+			if (rc == 200) {
+				token = (String) result.get("session_token");
+				if (StringUtils.isNotEmpty(token)) {
+					if (log.isDebugEnabled()) {
+						log.debug("Lenel Session Token: " + token);
+					}
+				} else {
+					log.error("Unable to obtain a valid session token when authenticating to Lenel.");
+					eventService.logEvent(new Event((String) details.get("id"), "Session token fetch error", "Unable to obtain a valid session token when authenticating to Lenel.", details));
+				}
+			} else {
+				log.error("Invalid HTTP Response Code returned when authenticating to Lenel to obtain a valid session token: " + rc);
+				eventService.logEvent(new Event((String) details.get("id"), "Session token fetch error", "Invalid HTTP Response Code returned when authenticating to Lenel to obtain a valid session token: " + rc, details));
+			}
+		} catch (Exception e) {
+			log.error("Exception encountered when authenticating to Lenel to obtain a valid session token: " + e, e);
+			eventService.logEvent(new Event((String) details.get("id"), "Session token fetch exception", "Exception encountered when authenticating to Lenel to obtain a valid session token: " + e, details, e));
+		}
+		if (log.isDebugEnabled()) {
+			log.debug("Returning Lenel Session Token: " + token);
+		}
+
+		return token;
+	}
+
+	/**
 	 * <p>Returns the card holder data on file in the card holder database, if present.</p>
 	 *
 	 * @param id the IAM ID of the person
@@ -184,82 +262,56 @@ public class CardHolderUpdateServlet extends HttpServlet {
 	 * @param details the JSON object containing the details of this transaction
 	 * @return the cardholder's data from the card key system
 	 */
-	private Map<String,String> fetchCardholder(String id, String key, JSONObject details) {
-		Map<String,String> person = null;
+	private JSONObject fetchCardholder(String id, String key, JSONObject details) {
+		JSONObject person = null;
 
 		if (log.isDebugEnabled()) {
 			log.debug("Searching card key database for IAM ID #" + id + " ...");
 		}
-		Connection con = null;
-		PreparedStatement ps = null;
-		ResultSet rs = null;
+		String url = lenelServer + FETCH_URL + id;
+		HttpGet get = new HttpGet(url);
+		get.setHeader(HttpHeaders.ACCEPT, "application/json");
+		get.setHeader("Session-Token", (String) details.get("sessionToken"));
+		get.setHeader("Application-Id", lenelApplicationId);
 		try {
-			con = dataSource.getConnection();
-			ps = con.prepareStatement("SELECT c_id, c_lname, c_fname, c_mname, c_nick_name, c_addr, c_addr1, c_addr2, c_addr3, c_suite, c_phone, c_email, c_s_timestamp, c_t_timestamp, c_sponsor_id FROM cardholder WHERE c_nick_name=?");
-			ps.setString(1, key);
-			rs = ps.executeQuery();
-			if (rs.next()) {
-				person = new HashMap<String,String>();
-				person.put("CARDHOLDER_ID", nullify(rs.getString("c_id")));
-				person.put("LAST_NAME", nullify(rs.getString("c_lname")));
-				person.put("FIRST_NAME", nullify(rs.getString("c_fname")));
-				person.put("MIDDLE_NAME", nullify(rs.getString("c_mname")));
-				person.put("UC_PATH_ID", nullify(rs.getString("c_nick_name")));
-				person.put("ADDRESS", nullify(rs.getString("c_addr")));
-				person.put("CITY", nullify(rs.getString("c_addr1")));
-				person.put("STATE", nullify(rs.getString("c_addr2")));
-				person.put("ZIP", nullify(rs.getString("c_addr3")));
-				person.put("ROOM", nullify(rs.getString("c_suite")));
-				person.put("PHONE", nullify(rs.getString("c_phone")));
-				person.put("EMAIL", nullify(rs.getString("c_email")));
-				person.put("VALID_FROM", nullify(rs.getString("c_s_timestamp")));
-				person.put("VALID_TO", nullify(rs.getString("c_t_timestamp")));
-				person.put("SPONSOR", nullify(rs.getString("c_sponsor_id")));
-				try {
-					rs.close();
-				} catch (Exception e) {
-					// no one cares!
+			HttpClient client = HttpClientProvider.getClient();
+			if (log.isDebugEnabled()) {
+				log.debug("Fetching cardholder data using url " + url);
+			}
+			HttpResponse response = client.execute(get);
+			int rc = response.getStatusLine().getStatusCode();
+			String resp = "";
+			HttpEntity entity = response.getEntity();
+			if (entity != null) {
+				resp = EntityUtils.toString(entity);
+			}
+			if (log.isDebugEnabled()) {
+				log.debug("HTTP response code: " + rc);
+				log.debug("HTTP response: " + resp);
+			}
+			JSONObject result = (JSONObject) JSONValue.parse(resp);
+			if (rc == 200) {
+				JSONArray records = (JSONArray) result.get("item_list");
+				if (records != null && records.size() > 0) {
+					person = (JSONObject) ((JSONObject) records.get(0)).get("property_value_map");
+					if (log.isDebugEnabled()) {
+						log.debug("Cardholder found for IAM ID " + id + ": " + person.toJSONString());
+					}
+				} else {
+					if (log.isDebugEnabled()) {
+						log.debug("Cardholder not found on lenel for IAM ID " + id);
+					}
 				}
-				try {
-					ps.close();
-				} catch (Exception e) {
-					// no one cares!
-				}
-				ps = con.prepareStatement("SELECT LTRIM(RTRIM(a.ug_label)) AS LABEL, LTRIM(RTRIM(b.ut_text)) AS VALUE FROM udfgen a LEFT OUTER JOIN udftext b ON b.ut_udfgen_id=a.ug_id AND b.ut_cardholder_id=? WHERE a.ug_hidefrommis=0 ORDER BY a.ug_order");
-				ps.setString(1, person.get("CARDHOLDER_ID"));
-				rs = ps.executeQuery();
-				while (rs.next()) {
-					person.put(rs.getString("LABEL"), rs.getString("VALUE"));
-				}
+			} else {
+				log.error("Invalid HTTP Response Code returned when fetching Cardholder data for IAM ID " + id + ": " + rc);
+				eventService.logEvent(new Event(id, "Cardholder fetch error", "Invalid HTTP Response Code returned when fetching Cardholder data for IAM ID " + id + ": " + rc, details));
 			}
 		} catch (Exception e) {
-			log.error("Exception occurred while attempting to find IAM ID #" + id + ": " + e, e);
-			eventService.logEvent(new Event(id, "Card Holder fetch exception", "Exception occurred while attempting to find IAM ID #" + id + ": " + e, details, e));
-		} finally {
-			if (rs != null) {
-				try {
-					rs.close();
-				} catch (Exception e) {
-					// no one cares!
-				}
-			}
-			if (ps != null) {
-				try {
-					ps.close();
-				} catch (Exception e) {
-					// no one cares!
-				}
-			}
-			if (con != null) {
-				try {
-					con.close();
-				} catch (Exception e) {
-					// no one cares!
-				}
-			}
+			log.error("Exception encountered when fetching Cardholder data for IAM ID " + id + ": " + e, e);
+			eventService.logEvent(new Event(id, "Cardholder fetch exception", "Exception encountered when fetching Cardholder data for IAM ID " + id + ": " + e, details, e));
 		}
-		if (log.isDebugEnabled()) {
-			log.debug("Returning existing cardholder: " + person);
+		if (log.isDebugEnabled() && person != null) {
+			log.debug("Returning existing cardholder: " + person.toJSONString());
 		}
 
 		return person;
@@ -272,27 +324,27 @@ public class CardHolderUpdateServlet extends HttpServlet {
 	 * @param person the original person data
 	 * @return true if the person is unchanged
 	 */
-	private boolean personUnchanged(HttpServletRequest req, Map<String,String> newPerson, Map<String,String> oldPerson) {
+	private boolean personUnchanged(HttpServletRequest req, Map<String,String> person, Map<String,String> oldPerson) {
 		boolean unchanged = false;
 
-		if (isEqual(oldPerson, newPerson, "ADDRESS") &&
-				isEqual(oldPerson, newPerson, "ALT ID") &&
-				isEqual(oldPerson, newPerson, "CITY") &&
-				isEqual(oldPerson, newPerson, "EMAIL") &&
-				isEqual(oldPerson, newPerson, "EXPIRATION_DATE") &&
-				isEqual(oldPerson, newPerson, "FIRST_NAME") &&
-				isEqual(oldPerson, newPerson, "HR_DEPT") &&
-				isEqual(oldPerson, newPerson, "HR_DEPTID") &&
-				isEqual(oldPerson, newPerson, "HR_TITLE") &&
-				isEqual(oldPerson, newPerson, "IAM ID") &&
-				isEqual(oldPerson, newPerson, "LAST_NAME") &&
-				isEqual(oldPerson, newPerson, "MIDDLE_NAME") &&
-				isEqual(oldPerson, newPerson, "ROOM") &&
-				isEqual(oldPerson, newPerson, "TITLE 1") &&
-				isEqual(oldPerson, newPerson, "TITLE 2") &&
-				isEqual(oldPerson, newPerson, "TITLE 3") &&
-				isEqual(oldPerson, newPerson, "UC_PATH_ID") &&
-				isEqual(oldPerson, newPerson, "ZIP")) {
+		if (isEqual(oldPerson, person, "ADDRESS") &&
+				isEqual(oldPerson, person, "ALT ID") &&
+				isEqual(oldPerson, person, "CITY") &&
+				isEqual(oldPerson, person, "EMAIL") &&
+				isEqual(oldPerson, person, "EXPIRATION_DATE") &&
+				isEqual(oldPerson, person, "FIRST_NAME") &&
+				isEqual(oldPerson, person, "HR_DEPT") &&
+				isEqual(oldPerson, person, "HR_DEPTID") &&
+				isEqual(oldPerson, person, "HR_TITLE") &&
+				isEqual(oldPerson, person, "IAM ID") &&
+				isEqual(oldPerson, person, "LAST_NAME") &&
+				isEqual(oldPerson, person, "MIDDLE_NAME") &&
+				isEqual(oldPerson, person, "ROOM") &&
+				isEqual(oldPerson, person, "TITLE 1") &&
+				isEqual(oldPerson, person, "TITLE 2") &&
+				isEqual(oldPerson, person, "TITLE 3") &&
+				isEqual(oldPerson, person, "UC_PATH_ID") &&
+				isEqual(oldPerson, person, "ZIP")) {
 			unchanged = true;
 		}
 
@@ -303,11 +355,11 @@ public class CardHolderUpdateServlet extends HttpServlet {
 	 * <p>Returns the response.</p>
 	 *
 	 * @param req the <code>HttpServletRequest</code> object
-	 * @param newPerson the new data for this person
+	 * @param person the new data for this person
 	 * @param oldPerson the existing data for this person
 	 * @return the response
 	 */
-	private String updateCardholder(HttpServletRequest req, HttpServletResponse res, Map<String,String> newPerson, Map<String,String> oldPerson, JSONObject details) {
+	private String updateCardholder(HttpServletRequest req, HttpServletResponse res, Map<String,String> person, Map<String,String> oldPerson, JSONObject details) {
 		String response = null;
 
 		String cardholderId = null;
@@ -315,22 +367,16 @@ public class CardHolderUpdateServlet extends HttpServlet {
 			if (StringUtils.isNotEmpty(oldPerson.get("CARDHOLDER_ID"))) {
 				cardholderId = oldPerson.get("CARDHOLDER_ID");
 			}
-			if (StringUtils.isNotEmpty(oldPerson.get("BARCODE"))) {
-				newPerson.put("BARCODE", oldPerson.get("BARCODE"));
-				if (log.isDebugEnabled()) {
-					log.debug("Retaining existing barcode value: " + newPerson.get("BARCODE"));
-				}
-			}
-			if (StringUtils.isEmpty(newPerson.get("HR_DEPTID"))) {
-				newPerson.put("HR_DEPT", oldPerson.get("HR_DEPT"));
-				newPerson.put("HR_DEPTID", oldPerson.get("HR_DEPTID"));
+			if (StringUtils.isEmpty(person.get("HR_DEPTID"))) {
+				person.put("HR_DEPT", oldPerson.get("HR_DEPT"));
+				person.put("HR_DEPTID", oldPerson.get("HR_DEPTID"));
 			}
 		}
 		if (log.isDebugEnabled()) {
 			if (StringUtils.isNotEmpty(cardholderId)) {
-				log.debug("Updating existing cardholder data for " + newPerson.get("FIRST_NAME") + " " + newPerson.get("LAST_NAME") + " (" + cardholderId + ")");
+				log.debug("Updating existing cardholder data for " + person.get("FIRST_NAME") + " " + person.get("LAST_NAME") + " (" + cardholderId + ")");
 			} else {
-				log.debug("Inserting data for new cardholder " + newPerson.get("FIRST_NAME") + " " + newPerson.get("LAST_NAME"));
+				log.debug("Inserting data for new cardholder " + person.get("FIRST_NAME") + " " + person.get("LAST_NAME"));
 			}
 		}
 		Connection con = null;
@@ -340,54 +386,54 @@ public class CardHolderUpdateServlet extends HttpServlet {
 			ps = con.prepareStatement("INSERT INTO Pegasys_Util.dbo.Super_User_Queue ([CardHolderID], [RequestID], [FirstName], [MiddleName], [LastName], [NickName], [Address], [City], [State], [Zip], [Room], [Phone], [Email], [StartDate], [EndDate], [SponsorID], [NAME], [FIRST], [LAST], [DEGREES], [TITLE_1], [TITLE_2], [TITLE_3], [EXPIRATION_DATE], [EMP_ID], [ALT_ID], [MEAL_CARD], [NOTES_1], [NOTES_2], [HR_TITLE], [HR_DEPT], [HR_DEPTID], [HR_NOTES], [IAM_ID], [QueueStart]) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, getdate())");
 			ps.setString(1, nullify(cardholderId));
 			ps.setString(2, nullify(req.getParameter("_rid")));
-			ps.setString(3, nullify(newPerson.get("FIRST_NAME")));
-			ps.setString(4, nullify(newPerson.get("MIDDLE_NAME")));
-			ps.setString(5, nullify(newPerson.get("LAST_NAME")));
-			ps.setString(6, nullify(newPerson.get("UNIQUE_KEY")));
-			ps.setString(7, nullify(newPerson.get("ADDRESS")));
-			ps.setString(8, nullify(newPerson.get("CITY")));
-			ps.setString(9, nullify(newPerson.get("STATE")));
-			ps.setString(10, nullify(newPerson.get("ZIP")));
-			ps.setString(11, nullify(newPerson.get("ROOM")));
-			ps.setString(12, nullify(newPerson.get("PHONE")));
+			ps.setString(3, nullify(person.get("FIRST_NAME")));
+			ps.setString(4, nullify(person.get("MIDDLE_NAME")));
+			ps.setString(5, nullify(person.get("LAST_NAME")));
+			ps.setString(6, nullify(person.get("UNIQUE_KEY")));
+			ps.setString(7, nullify(person.get("ADDRESS")));
+			ps.setString(8, nullify(person.get("CITY")));
+			ps.setString(9, nullify(person.get("STATE")));
+			ps.setString(10, nullify(person.get("ZIP")));
+			ps.setString(11, nullify(person.get("ROOM")));
+			ps.setString(12, nullify(person.get("PHONE")));
 			String email = null;
-			if (StringUtils.isNotEmpty(newPerson.get("EMAIL"))) {
-				email = newPerson.get("EMAIL").toLowerCase();
+			if (StringUtils.isNotEmpty(person.get("EMAIL"))) {
+				email = person.get("EMAIL").toLowerCase();
 			}
 			ps.setString(13, email);
-			ps.setString(14, nullify(newPerson.get("VALID_FROM")));
-			ps.setString(15, nullify(newPerson.get("VALID_TO")));
-			ps.setString(16, nullify(newPerson.get("SPONSOR")));
-			ps.setString(17, nullify(newPerson.get("NAME")));
-			ps.setString(18, nullify(newPerson.get("FIRST")));
-			ps.setString(19, nullify(newPerson.get("LAST")));
-			ps.setString(20, nullify(newPerson.get("DEGREES")));
-			ps.setString(21, nullify(newPerson.get("TITLE_1")));
-			ps.setString(22, nullify(newPerson.get("TITLE_2")));
-			ps.setString(23, nullify(newPerson.get("TITLE_3")));
-			ps.setString(24, nullify(newPerson.get("EXPIRATION_DATE")));
-			ps.setString(25, nullify(newPerson.get("EMP_ID")));
-			ps.setString(26, nullify(newPerson.get("ALT_ID")));
-			ps.setString(27, nullify(newPerson.get("MEAL_CARD")));
-			ps.setString(28, nullify(newPerson.get("NOTES_1")));
-			ps.setString(29, nullify(newPerson.get("NOTES_2")));
-			ps.setString(30, nullify(newPerson.get("HR_TITLE")));
-			ps.setString(31, nullify(newPerson.get("HR_DEPT")));
-			ps.setString(32, nullify(newPerson.get("HR_DEPTID")));
-			ps.setString(33, nullify(newPerson.get("HR_NOTES")));
-			ps.setString(34, nullify(newPerson.get("IAM_ID")));
+			ps.setString(14, nullify(person.get("VALID_FROM")));
+			ps.setString(15, nullify(person.get("VALID_TO")));
+			ps.setString(16, nullify(person.get("SPONSOR")));
+			ps.setString(17, nullify(person.get("NAME")));
+			ps.setString(18, nullify(person.get("FIRST")));
+			ps.setString(19, nullify(person.get("LAST")));
+			ps.setString(20, nullify(person.get("DEGREES")));
+			ps.setString(21, nullify(person.get("TITLE_1")));
+			ps.setString(22, nullify(person.get("TITLE_2")));
+			ps.setString(23, nullify(person.get("TITLE_3")));
+			ps.setString(24, nullify(person.get("EXPIRATION_DATE")));
+			ps.setString(25, nullify(person.get("EMP_ID")));
+			ps.setString(26, nullify(person.get("ALT_ID")));
+			ps.setString(27, nullify(person.get("MEAL_CARD")));
+			ps.setString(28, nullify(person.get("NOTES_1")));
+			ps.setString(29, nullify(person.get("NOTES_2")));
+			ps.setString(30, nullify(person.get("HR_TITLE")));
+			ps.setString(31, nullify(person.get("HR_DEPT")));
+			ps.setString(32, nullify(person.get("HR_DEPTID")));
+			ps.setString(33, nullify(person.get("HR_NOTES")));
+			ps.setString(34, nullify(person.get("IAM_ID")));
 			int insertCt = ps.executeUpdate();
 			if (insertCt == 1) {
 				response = "0;Update added to the pending work queue";
 			} else {
 				response = "1;Unable to add update to the pending work queue";
 				log.error("Unable to add update to the pending work queue");
-				eventService.logEvent(new Event(newPerson.get("IAM_ID"), "Card Holder update error", "Unable to add update to the pending work queue", details));
+				eventService.logEvent(new Event(person.get("IAM_ID"), "Card Holder update error", "Unable to add update to the pending work queue", details));
 			}
 		} catch (Exception e) {
 			response = "2;Exception occurred while attempting to add to the pending work queue: " + e;
 			log.error("Exception occurred while attempting to add to the pending work queue: " + e, e);
-			eventService.logEvent(new Event(newPerson.get("IAM_ID"), "Card Holder update exception", "Exception occurred while attempting to add to the pending work queue: " + e, details, e));
+			eventService.logEvent(new Event(person.get("IAM_ID"), "Card Holder update exception", "Exception occurred while attempting to add to the pending work queue: " + e, details, e));
 		} finally {
 			if (ps != null) {
 				try {
@@ -449,7 +495,7 @@ public class CardHolderUpdateServlet extends HttpServlet {
 		}
 		if (StringUtils.isEmpty((String) person.get("ALT_ID"))) {
 			if (StringUtils.isNotEmpty(req.getParameter("studentId"))) {
-				person.put("ALT_ID", "UCD" + req.getParameter("studentId"));
+				person.put("ALT_ID", "STU:" + req.getParameter("studentId"));
 			} else if (StringUtils.isNotEmpty(req.getParameter("externalId")) && req.getParameter("externalId").startsWith("H0")) {
 				person.put("ALT_ID", "EXT:" + req.getParameter("externalId"));
 			} else if (StringUtils.isEmpty((String) person.get("EMP_ID"))) {
@@ -706,64 +752,6 @@ public class CardHolderUpdateServlet extends HttpServlet {
 		}
 
 		return iamId;
-	}
-
-	/**
-	 * <p>Returns the card holder id for the iam id passed.</p>
-	 *
-	 * @param iamId the IAM ID of the person
-	 * @return the card holder id for the iam id passed
-	 */
-	private int fetchIamIdIndex() {
-		int inx = -1;
-
-		if (log.isDebugEnabled()) {
-			log.debug("Searching for index value for IAM UDF field");
-		}
-		Connection con = null;
-		PreparedStatement ps = null;
-		ResultSet rs = null;
-		try {
-			con = dataSource.getConnection();
-			ps = con.prepareStatement("SELECT ug_id FROM udfgen WHERE ug_label='IAM_ID'");
-			rs = ps.executeQuery();
-			if (rs.next()) {
-				inx = rs.getInt(1);
-				if (log.isDebugEnabled()) {
-					log.debug("Found index value for IAM UDF field: " + inx);
-				}
-			}
-		} catch (Exception e) {
-			log.error("Exception occurred while attempting to find index value for IAM UDF field: " + e, e);
-			eventService.logEvent(new Event("CardHolderUpdateServlet", "IAM UDF index fetch exception", "Exception occurred while attempting to find index value for IAM UDF field: " + e, new JSONObject(), e));
-		} finally {
-			if (rs != null) {
-				try {
-					rs.close();
-				} catch (Exception e) {
-					// no one cares!
-				}
-			}
-			if (ps != null) {
-				try {
-					ps.close();
-				} catch (Exception e) {
-					// no one cares!
-				}
-			}
-			if (con != null) {
-				try {
-					con.close();
-				} catch (Exception e) {
-					// no one cares!
-				}
-			}
-		}
-		if (log.isDebugEnabled()) {
-			log.debug("Returning  index value for IAM UDF field: " + inx);
-		}
-
-		return inx;
 	}
 
 	private boolean isEqual(Map<String,String> p1, Map<String,String> p2, String key) {

@@ -506,9 +506,9 @@ public class PersonUpdateServlet extends SubscriberServlet {
 		}
 		Connection conn = null;
 		PreparedStatement ps = null;
-		String sql = "INSERT INTO PERSON (ID, LAST_NAME, FIRST_NAME, MIDDLE_NAME, TITLE, SUPERVISOR, MANAGER, DEPT_ID, IS_ACTIVE, IS_UCDH_EMPLOYEE, IS_UCD_EMPLOYEE, IS_EXTERNAL, IS_PREVIOUS_UCDH_EMPLOYEE, IS_PREVIOUS_UCD_EMPLOYEE, IS_STUDENT, START_DATE, PHONE_NUMBER, CELL_NUMBER, PAGER_NUMBER, PAGER_PROVIDER, ALTERNATE_PHONES, EMAIL, ALTERNATE_EMAIL, LOCATION_CODE, STATION, CREATED_ON, CREATED_BY, CREATED_FROM, UPDATE_CT, UPDATED_ON, UPDATED_BY, UPDATED_FROM) VALUES( ?, ?, ?, ?, ?, ?, ?, ?, 'Y', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, getdate(), ?, ?, 0, getdate(), ?, ?)";
+		String sql = "INSERT INTO PERSON (ID, LAST_NAME, FIRST_NAME, MIDDLE_NAME, TITLE, SUPERVISOR, MANAGER, DEPT_ID, IS_ACTIVE, IS_UCDH_EMPLOYEE, IS_UCD_EMPLOYEE, IS_EXTERNAL, IS_PREVIOUS_UCDH_EMPLOYEE, IS_PREVIOUS_UCD_EMPLOYEE, IS_STUDENT, START_DATE, PHONE_NUMBER, CELL_NUMBER, PAGER_NUMBER, PAGER_PROVIDER, ALTERNATE_PHONES, EMAIL, ALTERNATE_EMAIL, LOCATION_CODE, STATION, STUDENT_MAJOR, STUDENT_MAJOR_NAME, UC_PATH_INSTITUTION, UC_PATH_PERCENT, UC_PATH_REPRESENTATION, UC_PATH_TYPE, CREATED_ON, CREATED_BY, CREATED_FROM, UPDATE_CT, UPDATED_ON, UPDATED_BY, UPDATED_FROM) VALUES( ?, ?, ?, ?, ?, ?, ?, ?, 'Y', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, getdate(), ?, ?, 0, getdate(), ?, ?)";
 		if (!personActive) {
-			sql = "INSERT INTO PERSON (ID, LAST_NAME, FIRST_NAME, MIDDLE_NAME, TITLE, SUPERVISOR, MANAGER, DEPT_ID, IS_ACTIVE, IS_UCDH_EMPLOYEE, IS_UCD_EMPLOYEE, IS_EXTERNAL, IS_PREVIOUS_UCDH_EMPLOYEE, IS_PREVIOUS_UCD_EMPLOYEE, IS_STUDENT, START_DATE, END_DATE, PHONE_NUMBER, CELL_NUMBER, PAGER_NUMBER, PAGER_PROVIDER, ALTERNATE_PHONES, EMAIL, ALTERNATE_EMAIL, LOCATION_CODE, STATION, CREATED_ON, CREATED_BY, CREATED_FROM, UPDATE_CT, UPDATED_ON, UPDATED_BY, UPDATED_FROM) VALUES( ?, ?, ?, ?, ?, ?, ?, ?, 'N', ?, ?, ?, ?, ?, ?, ?, getdate(), ?, ?, ?, ?, ?, ?, ?, ?, ?, getdate(), ?, ?, 0, getdate(), ?, ?)";
+			sql = "INSERT INTO PERSON (ID, LAST_NAME, FIRST_NAME, MIDDLE_NAME, TITLE, SUPERVISOR, MANAGER, DEPT_ID, IS_ACTIVE, IS_UCDH_EMPLOYEE, IS_UCD_EMPLOYEE, IS_EXTERNAL, IS_PREVIOUS_UCDH_EMPLOYEE, IS_PREVIOUS_UCD_EMPLOYEE, IS_STUDENT, START_DATE, END_DATE, PHONE_NUMBER, CELL_NUMBER, PAGER_NUMBER, PAGER_PROVIDER, ALTERNATE_PHONES, EMAIL, ALTERNATE_EMAIL, LOCATION_CODE, STATION, STUDENT_MAJOR, STUDENT_MAJOR_NAME, UC_PATH_INSTITUTION, UC_PATH_PERCENT, UC_PATH_REPRESENTATION, UC_PATH_TYPE, CREATED_ON, CREATED_BY, CREATED_FROM, UPDATE_CT, UPDATED_ON, UPDATED_BY, UPDATED_FROM) VALUES( ?, ?, ?, ?, ?, ?, ?, ?, 'N', ?, ?, ?, ?, ?, ?, ?, getdate(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, getdate(), ?, ?, 0, getdate(), ?, ?)";
 		}
 		try {
 			conn = dataSource.getConnection();
@@ -540,10 +540,16 @@ public class PersonUpdateServlet extends SubscriberServlet {
 			ps.setString(22, (String) person.get("ALTERNATE_EMAIL"));
 			ps.setString(23, (String) person.get("LOCATION_CODE"));
 			ps.setString(24, (String) person.get("STATION"));
-			ps.setString(25, USER_ID);
-			ps.setString(26, remoteAddr);
-			ps.setString(27, USER_ID);
-			ps.setString(28, remoteAddr);
+			ps.setString(25, (String) person.get("STUDENT_MAJOR"));
+			ps.setString(26, (String) person.get("STUDENT_MAJOR_NAME"));
+			ps.setString(27, (String) person.get("UC_PATH_INSTITUTION"));
+			ps.setString(28, (String) person.get("UC_PATH_PERCENT"));
+			ps.setString(29, (String) person.get("UC_PATH_REPRESENTATION"));
+			ps.setString(30, (String) person.get("UC_PATH_TYPE"));
+			ps.setString(31, USER_ID);
+			ps.setString(32, remoteAddr);
+			ps.setString(33, USER_ID);
+			ps.setString(34, remoteAddr);
 			if (ps.executeUpdate() > 0) {
 				boolean success = true;
 				if (log.isDebugEnabled()) {
@@ -1108,12 +1114,28 @@ public class PersonUpdateServlet extends SubscriberServlet {
 
 		if (StringUtils.isNotEmpty((String) newPerson.get("START_DATE"))) {
 			startDate = (String) newPerson.get("START_DATE");
+			if (log.isDebugEnabled()) {
+				log.debug("Person Start Date from incoming record: " + startDate);
+			}
 		} else if (oldPerson != null && StringUtils.isNotEmpty((String) oldPerson.get("START_DATE"))) {
 			startDate = (String) oldPerson.get("START_DATE");
+			if (log.isDebugEnabled()) {
+				log.debug("Person Start Date from existing record: " + startDate);
+			}
 		} else if (StringUtils.isNotEmpty((String) newPerson.get("UC_PATH_START"))) {
 			startDate = (String) newPerson.get("UC_PATH_START");
+			if (log.isDebugEnabled()) {
+				log.debug("Person Start Date from UC Path data: " + startDate);
+			}
 		} else if (StringUtils.isNotEmpty((String) newPerson.get("EXTERNAL_START"))) {
 			startDate = (String) newPerson.get("EXTERNAL_START");
+			if (log.isDebugEnabled()) {
+				log.debug("Person Start Date from External data: " + startDate);
+			}
+		} else {
+			if (log.isDebugEnabled()) {
+				log.debug("Using current data for Person Start Date: " + startDate);
+			}
 		}
 
 		return startDate;
