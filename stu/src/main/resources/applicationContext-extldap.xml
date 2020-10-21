@@ -9,7 +9,7 @@
 
     <context:property-placeholder location="classpath*:batch.properties"/>
 
-    <bean id="batchJobService" class="edu.ucdavis.ucdhs.isweb.core.utils.BatchJobService">
+    <bean id="batchJobService" class="edu.ucdavis.ucdh.stu.core.utils.BatchJobService">
         <constructor-arg value="${batch.job.service.server.url}"></constructor-arg>
     </bean>
 
@@ -25,17 +25,23 @@
         <constructor-arg value="${batch.job.schedule.name}"></constructor-arg>
     </bean>
 
-    <bean id="application" class="edu.ucdavis.ucdhs.itoc.sm.batch.ExternalLdapMonitor">
-        <property name="smDriver"        value="${jdbc.driverClassName}"/>
-        <property name="smURL"           value="${jdbc.url}"/>
-        <property name="smUser"          value="${jdbc.username}"/>
-        <property name="smPassword"      value="${jdbc.password}"/>
-        <property name="contextFactory"  value="${context.factory}"/>
-        <property name="providerUrl"     value="${provider.url}"/>
-        <property name="securityAuth"    value="${security.auth}"/>
-        <property name="securityPrin"    value="${security.prin}"/>
-        <property name="securityCred"    value="${security.cred}"/>
-        <property name="standardSearch"  value="${standard.search}"/>
+	<bean id="eventService" class="edu.ucdavis.ucdh.stu.snutil.util.EventService">
+		<constructor-arg value="${servicenow.server}" />
+		<constructor-arg value="${servicenow.user}" />
+		<constructor-arg value="${servicenow.password}" />
+	</bean>
+
+    <bean id="application" class="edu.ucdavis.ucdh.stu.stu.batch.ExternalLdapMonitor">
+        <property name="serviceNowServer"   value="${servicenow.server}"/>
+        <property name="serviceNowUser"     value="${servicenow.user}"/>
+        <property name="serviceNowPassword" value="${servicenow.password}"/>
+        <property name="contextFactory"     value="${context.factory}"/>
+        <property name="providerUrl"        value="${provider.url}"/>
+        <property name="securityAuth"       value="${security.auth}"/>
+        <property name="securityPrin"       value="${security.prin}"/>
+        <property name="securityCred"       value="${security.cred}"/>
+        <property name="standardSearch"     value="${standard.search}"/>
+        <property name="eventService"       ref="eventService"/>
     </bean>
 
 </beans>

@@ -719,8 +719,8 @@ public class PersonUpdateServlet extends SubscriberServlet {
 			}
 			if (activeCt > 0) {
 				if ("UC PATH".equalsIgnoreCase(idType)) {
-					personActive = true;
 					if ("UCDH".equalsIgnoreCase((String) newPerson.get("UC_PATH_INSTITUTION"))) {
+						personActive = true;
 						newPerson.put("IS_UCDH_EMPLOYEE", "Y");
 						newPerson.put("IS_UCD_EMPLOYEE", "N");
 					} else {
@@ -2200,6 +2200,9 @@ public class PersonUpdateServlet extends SubscriberServlet {
 							fieldValue = "";
 						}
 						properties.setProperty(fieldName, fieldValue);
+					}
+					if (log.isDebugEnabled()) {
+						log.debug("Person properties: " + properties);
 					}
 					up2dateService.post(new Update(publisherId, action, properties));
 				}

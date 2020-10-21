@@ -2,13 +2,20 @@ package edu.ucdavis.ucdh.stu.stu.servlets;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.security.KeyManagementException;
+import java.security.KeyStoreException;
+import java.security.NoSuchAlgorithmException;
+import java.security.cert.CertificateException;
+import java.security.cert.X509Certificate;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
-import java.util.Map;
 
+import javax.net.ssl.HostnameVerifier;
+import javax.net.ssl.SSLContext;
 import javax.servlet.ServletConfig;
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServlet;
@@ -26,25 +33,36 @@ import org.apache.http.auth.UsernamePasswordCredentials;
 import org.apache.http.client.HttpClient;
 import org.apache.http.client.methods.HttpGet;
 import org.apache.http.client.methods.HttpPost;
+import org.apache.http.client.methods.HttpPut;
+import org.apache.http.config.Registry;
+import org.apache.http.config.RegistryBuilder;
+import org.apache.http.conn.socket.ConnectionSocketFactory;
+import org.apache.http.conn.socket.PlainConnectionSocketFactory;
+import org.apache.http.conn.ssl.SSLConnectionSocketFactory;
 import org.apache.http.entity.StringEntity;
 import org.apache.http.impl.auth.BasicScheme;
+import org.apache.http.impl.client.HttpClientBuilder;
+import org.apache.http.impl.conn.PoolingHttpClientConnectionManager;
+import org.apache.http.ssl.SSLContextBuilder;
+import org.apache.http.ssl.TrustStrategy;
 import org.apache.http.util.EntityUtils;
 import org.json.simple.JSONArray;
 import org.json.simple.JSONObject;
 import org.json.simple.JSONValue;
 import org.springframework.web.context.support.WebApplicationContextUtils;
 
-import edu.ucdavis.ucdh.stu.core.utils.HttpClientProvider;
 import edu.ucdavis.ucdh.stu.snutil.beans.Event;
 import edu.ucdavis.ucdh.stu.snutil.util.EventService;
 
 /**
- * <p>This servlet updates the CardKey cardholder database with data from the UCDH Person Repository.</p>
+ * <p>This servlet updates the Lenel OnGuard cardholder database with data from the UCDH Person Repository.</p>
  */
 public class LenelCardHolderUpdateServlet extends HttpServlet {
 	private static final long serialVersionUID = 1;
 	private static final String AUTH_URL = "/api/access/onguard/openaccess/authentication?version=1.0";
-	private static final String FETCH_URL = "/api/access/onguard/openaccess/instances?version=1.0&type_name=Lnl_Cardholder&filter=IAMID%3D";
+	private static final String FETCH_URL = "/api/access/onguard/openaccess/instances?version=1.0&type_name=Lnl_Cardholder&filter=IAM_ID%3D";
+	private static final String DEPT_FETCH_URL = "/api/access/onguard/openaccess/instances?version=1.0&type_name=Lnl_DEPT&filter=Name%20like%20%22";
+	private static final String TITLE_FETCH_URL = "/api/access/onguard/openaccess/instances?version=1.0&type_name=Lnl_TITLE&filter=Name%3D%22";
 	private static final String UPDATE_URL = "/api/access/onguard/openaccess/instances?version=1.0";
 	private static final String GRANT_FETCH_URL = "/api/now/table/x_ucdhs_access_gra_access_grant?sysparm_fields=status&sysparm_query=grant.nameLIKEbadge%5Estatus%3Dactive%5Euser.employee_number%3D";
 	private Log log = LogFactory.getLog(getClass());
@@ -146,13 +164,13 @@ public class LenelCardHolderUpdateServlet extends HttpServlet {
 						JSONObject person = buildPersonFromRequest(req, details);
 						details.put("person", person);
 						if (StringUtils.isEmpty((String) person.get("bypassReason"))) {
-							Map<String,String> oldPerson = fetchCardholder(id, (String) person.get("UNIQUE_KEY"), details);
+							JSONObject oldPerson = fetchCardholder(id, details);
 							if (oldPerson != null) {
 								details.put("oldPerson", oldPerson);
 								if (!action.equalsIgnoreCase("force") && personUnchanged(req, person, oldPerson)) {
 									response = "1;No action taken -- no changes detected";
 								} else {
-									response = updateCardholder(req, res, person, oldPerson, details);
+									response = updateCardholder(person, oldPerson, details);
 								}
 							} else {
 								if (action.equalsIgnoreCase("delete")) {
@@ -161,7 +179,7 @@ public class LenelCardHolderUpdateServlet extends HttpServlet {
 									if ("INACTIVE".equalsIgnoreCase((String) person.get("HR_NOTES"))) {
 										response = "1;No action taken -- INACTIVE persons are not inserted";
 									} else {
-										response = updateCardholder(req, res, person, null, details);
+										response = insertCardholder(person, details);
 									}
 								}
 							}
@@ -211,24 +229,31 @@ public class LenelCardHolderUpdateServlet extends HttpServlet {
 		postData.put("user_name", lenelUser);
 		postData.put("password", lenelPassword);
 		postData.put("directory_id", lenelDirectory);
+		JSONObject tokenRequest = new JSONObject();
+		JSONObject tokenResponse = new JSONObject();
+		details.put("tokenRequest", tokenRequest);
+		details.put("tokenResponse", tokenResponse);
+		tokenRequest.put("url", url);
+		tokenRequest.put("tokenData", postData);
 		try {
-			HttpClient client = HttpClientProvider.getClient();
+			HttpClient client = createHttpClient_AcceptsUntrustedCerts();
+//			HttpClient client = HttpClientProvider.getClient();
 			if (log.isDebugEnabled()) {
 				log.debug("Authenticating to Lenel to obtain a valid session token using url " + url);
 			}
 			post.setEntity(new StringEntity(postData.toJSONString(), "utf-8"));
-			HttpResponse response = client.execute(post);
-			int rc = response.getStatusLine().getStatusCode();
-			String resp = "";
-			HttpEntity entity = response.getEntity();
+			HttpResponse resp = client.execute(post);
+			int rc = resp.getStatusLine().getStatusCode();
+			String jsonRespString = "";
+			JSONObject result = new JSONObject();
+			HttpEntity entity = resp.getEntity();
 			if (entity != null) {
-				resp = EntityUtils.toString(entity);
+				jsonRespString = EntityUtils.toString(entity);
+				result = (JSONObject) JSONValue.parse(jsonRespString);
 			}
-			if (log.isDebugEnabled()) {
-				log.debug("HTTP response code: " + rc);
-				log.debug("HTTP response: " + resp);
-			}
-			JSONObject result = (JSONObject) JSONValue.parse(resp);
+			tokenResponse.put("responseCode", rc);
+			tokenResponse.put("responseString", jsonRespString);
+			tokenResponse.put("responseObject", result);
 			if (rc == 200) {
 				token = (String) result.get("session_token");
 				if (StringUtils.isNotEmpty(token)) {
@@ -262,7 +287,8 @@ public class LenelCardHolderUpdateServlet extends HttpServlet {
 	 * @param details the JSON object containing the details of this transaction
 	 * @return the cardholder's data from the card key system
 	 */
-	private JSONObject fetchCardholder(String id, String key, JSONObject details) {
+	@SuppressWarnings("unchecked")
+	private JSONObject fetchCardholder(String id, JSONObject details) {
 		JSONObject person = null;
 
 		if (log.isDebugEnabled()) {
@@ -273,23 +299,32 @@ public class LenelCardHolderUpdateServlet extends HttpServlet {
 		get.setHeader(HttpHeaders.ACCEPT, "application/json");
 		get.setHeader("Session-Token", (String) details.get("sessionToken"));
 		get.setHeader("Application-Id", lenelApplicationId);
+		JSONObject fetchRequest = new JSONObject();
+		JSONObject fetchResponse = new JSONObject();
+		details.put("fetchRequest", fetchRequest);
+		details.put("fetchResponse", fetchResponse);
+		fetchRequest.put("url", url);
 		try {
-			HttpClient client = HttpClientProvider.getClient();
+			HttpClient client = createHttpClient_AcceptsUntrustedCerts();
+//			HttpClient client = HttpClientProvider.getClient();
 			if (log.isDebugEnabled()) {
 				log.debug("Fetching cardholder data using url " + url);
 			}
-			HttpResponse response = client.execute(get);
-			int rc = response.getStatusLine().getStatusCode();
-			String resp = "";
-			HttpEntity entity = response.getEntity();
+			HttpResponse resp = client.execute(get);
+			int rc = resp.getStatusLine().getStatusCode();
+			String jsonRespString = "";
+			JSONObject result = new JSONObject();
+			HttpEntity entity = resp.getEntity();
 			if (entity != null) {
-				resp = EntityUtils.toString(entity);
+				jsonRespString = EntityUtils.toString(entity);
+				result = (JSONObject) JSONValue.parse(jsonRespString);
 			}
+			fetchResponse.put("responseCode", rc);
+			fetchResponse.put("responseString", jsonRespString);
+			fetchResponse.put("responseObject", result);
 			if (log.isDebugEnabled()) {
-				log.debug("HTTP response code: " + rc);
-				log.debug("HTTP response: " + resp);
+				log.debug("JSON response: " + result.toJSONString());
 			}
-			JSONObject result = (JSONObject) JSONValue.parse(resp);
 			if (rc == 200) {
 				JSONArray records = (JSONArray) result.get("item_list");
 				if (records != null && records.size() > 0) {
@@ -324,27 +359,27 @@ public class LenelCardHolderUpdateServlet extends HttpServlet {
 	 * @param person the original person data
 	 * @return true if the person is unchanged
 	 */
-	private boolean personUnchanged(HttpServletRequest req, Map<String,String> person, Map<String,String> oldPerson) {
+	private boolean personUnchanged(HttpServletRequest req, JSONObject person, JSONObject oldPerson) {
 		boolean unchanged = false;
 
-		if (isEqual(oldPerson, person, "ADDRESS") &&
-				isEqual(oldPerson, person, "ALT ID") &&
-				isEqual(oldPerson, person, "CITY") &&
-				isEqual(oldPerson, person, "EMAIL") &&
-				isEqual(oldPerson, person, "EXPIRATION_DATE") &&
-				isEqual(oldPerson, person, "FIRST_NAME") &&
-				isEqual(oldPerson, person, "HR_DEPT") &&
-				isEqual(oldPerson, person, "HR_DEPTID") &&
-				isEqual(oldPerson, person, "HR_TITLE") &&
-				isEqual(oldPerson, person, "IAM ID") &&
-				isEqual(oldPerson, person, "LAST_NAME") &&
-				isEqual(oldPerson, person, "MIDDLE_NAME") &&
-				isEqual(oldPerson, person, "ROOM") &&
-				isEqual(oldPerson, person, "TITLE 1") &&
-				isEqual(oldPerson, person, "TITLE 2") &&
-				isEqual(oldPerson, person, "TITLE 3") &&
-				isEqual(oldPerson, person, "UC_PATH_ID") &&
-				isEqual(oldPerson, person, "ZIP")) {
+		if (isEqual(oldPerson, person, "ADDR1") &&
+	 			isEqual(oldPerson, person, "BARCODE1") &&
+	 			isEqual(oldPerson, person, "CITY") &&
+	 			isEqual(oldPerson, person, "DEPT") &&
+	 			isEqual(oldPerson, person, "EMAIL") &&
+	 			isEqual(oldPerson, person, "EMP") &&
+	 			isEqual(oldPerson, person, "FIRSTNAME") &&
+	 			isEqual(oldPerson, person, "FLOOR") &&
+	 			isEqual(oldPerson, person, "IAM_ID") &&
+	 			isEqual(oldPerson, person, "ID") &&
+	 			isEqual(oldPerson, person, "LASTNAME") &&
+	 			isEqual(oldPerson, person, "MIDNAME") &&
+	 			isEqual(oldPerson, person, "NAME") &&
+	 			isEqual(oldPerson, person, "OPHONE") &&
+	 			isEqual(oldPerson, person, "PHONE") &&
+	 			isEqual(oldPerson, person, "SSNO") &&
+	 			isEqual(oldPerson, person, "STATE") &&
+	 			isEqual(oldPerson, person, "ZIP")) {
 			unchanged = true;
 		}
 
@@ -352,106 +387,189 @@ public class LenelCardHolderUpdateServlet extends HttpServlet {
 	}
 
 	/**
-	 * <p>Returns the response.</p>
+	 * <p>Inserts a new Cardholder record.</p>
 	 *
-	 * @param req the <code>HttpServletRequest</code> object
-	 * @param person the new data for this person
-	 * @param oldPerson the existing data for this person
+	 * @param newPerson the new data for this cardholder
+	 * @param details the <code>JSONObject</code> object containing the details of the request
 	 * @return the response
 	 */
-	private String updateCardholder(HttpServletRequest req, HttpServletResponse res, Map<String,String> person, Map<String,String> oldPerson, JSONObject details) {
+	@SuppressWarnings("unchecked")
+	private String insertCardholder(JSONObject newPerson, JSONObject details) {
 		String response = null;
 
-		String cardholderId = null;
-		if (oldPerson != null) {
-			if (StringUtils.isNotEmpty(oldPerson.get("CARDHOLDER_ID"))) {
-				cardholderId = oldPerson.get("CARDHOLDER_ID");
-			}
-			if (StringUtils.isEmpty(person.get("HR_DEPTID"))) {
-				person.put("HR_DEPT", oldPerson.get("HR_DEPT"));
-				person.put("HR_DEPTID", oldPerson.get("HR_DEPTID"));
-			}
-		}
 		if (log.isDebugEnabled()) {
-			if (StringUtils.isNotEmpty(cardholderId)) {
-				log.debug("Updating existing cardholder data for " + person.get("FIRST_NAME") + " " + person.get("LAST_NAME") + " (" + cardholderId + ")");
-			} else {
-				log.debug("Inserting data for new cardholder " + person.get("FIRST_NAME") + " " + person.get("LAST_NAME"));
-			}
+			log.debug("Inserting person " + newPerson.get("IAM_ID"));
 		}
-		Connection con = null;
-		PreparedStatement ps = null;
+
+		// fix Title
+		String title = (String) newPerson.get("TITLE");
+		if (StringUtils.isEmpty(title)) {
+			newPerson.remove("TITLE");
+		} else {
+			newPerson.put("TITLE", getTitleId(title, details));
+		}
+
+		// create HttpPost
+		String url = lenelServer + UPDATE_URL;
+		HttpPost post = new HttpPost(url);
+		post.setHeader(HttpHeaders.ACCEPT, "application/json");
+		post.setHeader(HttpHeaders.CONTENT_TYPE, "application/json");
+		post.setHeader("Session-Token", (String) details.get("sessionToken"));
+		post.setHeader("Application-Id", lenelApplicationId);
+
+		// build JSON object to post
+		JSONObject insertData = new JSONObject();
+		insertData.put("type_name", "Lnl_Cardholder");
+		insertData.put("property_value_map", newPerson);
+		if (log.isDebugEnabled()) {
+			log.debug("JSON object to POST: " + insertData.toJSONString());
+		}
+		JSONObject insertRequest = new JSONObject();
+		JSONObject insertResponse = new JSONObject();
+		details.put("insertRequest", insertRequest);
+		details.put("insertResponse", insertResponse);
+		insertRequest.put("url", url);
+		insertRequest.put("insertData", insertData);
+
+		// post parameters
 		try {
-			con = dataSource.getConnection();
-			ps = con.prepareStatement("INSERT INTO Pegasys_Util.dbo.Super_User_Queue ([CardHolderID], [RequestID], [FirstName], [MiddleName], [LastName], [NickName], [Address], [City], [State], [Zip], [Room], [Phone], [Email], [StartDate], [EndDate], [SponsorID], [NAME], [FIRST], [LAST], [DEGREES], [TITLE_1], [TITLE_2], [TITLE_3], [EXPIRATION_DATE], [EMP_ID], [ALT_ID], [MEAL_CARD], [NOTES_1], [NOTES_2], [HR_TITLE], [HR_DEPT], [HR_DEPTID], [HR_NOTES], [IAM_ID], [QueueStart]) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, getdate())");
-			ps.setString(1, nullify(cardholderId));
-			ps.setString(2, nullify(req.getParameter("_rid")));
-			ps.setString(3, nullify(person.get("FIRST_NAME")));
-			ps.setString(4, nullify(person.get("MIDDLE_NAME")));
-			ps.setString(5, nullify(person.get("LAST_NAME")));
-			ps.setString(6, nullify(person.get("UNIQUE_KEY")));
-			ps.setString(7, nullify(person.get("ADDRESS")));
-			ps.setString(8, nullify(person.get("CITY")));
-			ps.setString(9, nullify(person.get("STATE")));
-			ps.setString(10, nullify(person.get("ZIP")));
-			ps.setString(11, nullify(person.get("ROOM")));
-			ps.setString(12, nullify(person.get("PHONE")));
-			String email = null;
-			if (StringUtils.isNotEmpty(person.get("EMAIL"))) {
-				email = person.get("EMAIL").toLowerCase();
+			post.setEntity(new StringEntity(insertData.toJSONString()));
+			HttpClient client = createHttpClient_AcceptsUntrustedCerts();
+//			HttpClient client = HttpClientProvider.getClient();
+			if (log.isDebugEnabled()) {
+				log.debug("Posting JSON data to " + url);
 			}
-			ps.setString(13, email);
-			ps.setString(14, nullify(person.get("VALID_FROM")));
-			ps.setString(15, nullify(person.get("VALID_TO")));
-			ps.setString(16, nullify(person.get("SPONSOR")));
-			ps.setString(17, nullify(person.get("NAME")));
-			ps.setString(18, nullify(person.get("FIRST")));
-			ps.setString(19, nullify(person.get("LAST")));
-			ps.setString(20, nullify(person.get("DEGREES")));
-			ps.setString(21, nullify(person.get("TITLE_1")));
-			ps.setString(22, nullify(person.get("TITLE_2")));
-			ps.setString(23, nullify(person.get("TITLE_3")));
-			ps.setString(24, nullify(person.get("EXPIRATION_DATE")));
-			ps.setString(25, nullify(person.get("EMP_ID")));
-			ps.setString(26, nullify(person.get("ALT_ID")));
-			ps.setString(27, nullify(person.get("MEAL_CARD")));
-			ps.setString(28, nullify(person.get("NOTES_1")));
-			ps.setString(29, nullify(person.get("NOTES_2")));
-			ps.setString(30, nullify(person.get("HR_TITLE")));
-			ps.setString(31, nullify(person.get("HR_DEPT")));
-			ps.setString(32, nullify(person.get("HR_DEPTID")));
-			ps.setString(33, nullify(person.get("HR_NOTES")));
-			ps.setString(34, nullify(person.get("IAM_ID")));
-			int insertCt = ps.executeUpdate();
-			if (insertCt == 1) {
-				response = "0;Update added to the pending work queue";
+			HttpResponse resp = client.execute(post);
+			int rc = resp.getStatusLine().getStatusCode();
+			String jsonRespString = "";
+			JSONObject result = new JSONObject();
+			HttpEntity entity = resp.getEntity();
+			if (entity != null) {
+				jsonRespString = EntityUtils.toString(entity);
+				result = (JSONObject) JSONValue.parse(jsonRespString);
+			}
+			insertResponse.put("responseCode", rc);
+			insertResponse.put("responseString", jsonRespString);
+			insertResponse.put("responseObject", result);
+			if (log.isDebugEnabled()) {
+				log.debug("JSON response: " + result.toJSONString());
+			}
+			if (rc == 200 || rc == 201) {
+				response = "0;Cardholder inserted";
+				if (log.isDebugEnabled()) {
+					log.debug("HTTP response code from post: " + rc);
+				}
 			} else {
-				response = "1;Unable to add update to the pending work queue";
-				log.error("Unable to add update to the pending work queue");
-				eventService.logEvent(new Event(person.get("IAM_ID"), "Card Holder update error", "Unable to add update to the pending work queue", details));
+				response = "2;Unable to insert cardholder";
+				if (log.isDebugEnabled()) {
+					log.debug("Invalid HTTP Response Code returned when inserting new cardholder: " + rc);
+				}
+				eventService.logEvent(new Event((String) details.get("id"), "Cardholder insert error", "Invalid HTTP Response Code returned when inserting new cardholder: " + rc, details));
 			}
 		} catch (Exception e) {
-			response = "2;Exception occurred while attempting to add to the pending work queue: " + e;
-			log.error("Exception occurred while attempting to add to the pending work queue: " + e, e);
-			eventService.logEvent(new Event(person.get("IAM_ID"), "Card Holder update exception", "Exception occurred while attempting to add to the pending work queue: " + e, details, e));
-		} finally {
-			if (ps != null) {
-				try {
-					ps.close();
-				} catch (Exception e) {
-					// no one cares!
-				}
-			}
-			if (con != null) {
-				try {
-					con.close();
-				} catch (Exception e) {
-					// no one cares!
-				}
+			log.debug("Exception occured when attempting to insert new cardholder " + newPerson.get("IAM_ID") + ": " + e, e);
+			eventService.logEvent(new Event((String) details.get("id"), "Cardholder insert exception", "Exception occured when attempting to insert new cardholder " + newPerson.get("IAM_ID") + ": " + e, details, e));
+			response = "2;Unable to insert cardholder";
+		}
+
+		return response;
+	}
+
+	/**
+	 * <p>Returns the response.</p>
+	 *
+	 * @param newPerson the new data for this cardholder
+	 * @param oldPerson the existing data for this cardholder
+	 * @param details the <code>JSONObject</code> object containing the details of the request
+	 * @return the response
+	 */
+	@SuppressWarnings("unchecked")
+	private String updateCardholder(JSONObject newPerson, JSONObject oldPerson, JSONObject details) {
+		String response = null;
+
+		if (log.isDebugEnabled()) {
+			log.debug("Updating person " + newPerson.get("IAM_ID"));
+		}
+
+		// fix Title
+		String title = (String) newPerson.get("TITLE");
+		if (StringUtils.isEmpty(title)) {
+			newPerson.remove("TITLE");
+		} else {
+			newPerson.put("TITLE", getTitleId(title, details));
+		}
+
+		// create HttpPut
+		String url = lenelServer + UPDATE_URL;
+		HttpPut put = new HttpPut(url);
+		put.setHeader(HttpHeaders.ACCEPT, "application/json");
+		put.setHeader(HttpHeaders.CONTENT_TYPE, "application/json");
+		put.setHeader("Session-Token", (String) details.get("sessionToken"));
+		put.setHeader("Application-Id", lenelApplicationId);
+
+		// build JSON to put
+		JSONObject updateData = new JSONObject();
+		JSONObject propertyMap = new JSONObject();
+		propertyMap.put("ID", oldPerson.get("ID"));
+		Iterator<String> i = newPerson.keySet().iterator();
+		while (i.hasNext()) {
+			String key = i.next();
+			String value = newPerson.get(key) + "";
+			if (StringUtils.isNotEmpty(value) && !value.equalsIgnoreCase("null") && !value.equals(oldPerson.get(key))) {
+				propertyMap.put(key, value);
 			}
 		}
+		updateData.put("type_name", "Lnl_Cardholder");
+		updateData.put("property_value_map", propertyMap);
 		if (log.isDebugEnabled()) {
-			log.debug("Update response: " + response);
+			log.debug("JSON object to POST: " + updateData.toJSONString());
+		}
+		JSONObject updateRequest = new JSONObject();
+		JSONObject updateResponse = new JSONObject();
+		details.put("updateRequest", updateRequest);
+		details.put("updateResponse", updateResponse);
+		updateRequest.put("url", url);
+		updateRequest.put("updateData", updateData);
+
+		// put JSON
+		try {
+			put.setEntity(new StringEntity(updateData.toJSONString()));
+			HttpClient client = createHttpClient_AcceptsUntrustedCerts();
+//			HttpClient client = HttpClientProvider.getClient();
+			if (log.isDebugEnabled()) {
+				log.debug("Putting JSON update to " + url);
+			}
+			HttpResponse resp = client.execute(put);
+			int rc = resp.getStatusLine().getStatusCode();
+			String jsonRespString = "";
+			JSONObject result = new JSONObject();
+			HttpEntity entity = resp.getEntity();
+			if (entity != null) {
+				jsonRespString = EntityUtils.toString(entity);
+				result = (JSONObject) JSONValue.parse(jsonRespString);
+			}
+			updateResponse.put("responseCode", rc);
+			updateResponse.put("responseString", jsonRespString);
+			updateResponse.put("responseObject", result);
+			if (log.isDebugEnabled()) {
+				log.debug("JSON response: " + result.toJSONString());
+			}
+			if (rc == 200) {
+				response = "0;Cardholder updated";
+				if (log.isDebugEnabled()) {
+					log.debug("HTTP response code from put: " + rc);
+				}
+			} else {
+				response = "2;Unable to update cardholder";
+				if (log.isDebugEnabled()) {
+					log.debug("Invalid HTTP Response Code returned when updating IAM ID " + newPerson.get("IAM_ID") + ": " + rc);
+				}
+				eventService.logEvent(new Event((String) details.get("id"), "User update error", "Invalid HTTP Response Code returned when updating IAM ID " + newPerson.get("IAM_ID") + ": " + rc, details));
+			}
+		} catch (Exception e) {
+			log.debug("Exception occured when attempting to update IAM ID " + newPerson.get("IAM_ID") + ": " + e);
+			eventService.logEvent(new Event((String) details.get("id"), "User update exception", "Exception occured when attempting to update IAM ID " + newPerson.get("IAM_ID") + ": " + e, details, e));
+			response = "2;Unable to update cardholder";
 		}
 
 		return response;
@@ -467,66 +585,33 @@ public class LenelCardHolderUpdateServlet extends HttpServlet {
 	private JSONObject buildPersonFromRequest(HttpServletRequest req, JSONObject details) {
 		JSONObject person = new JSONObject();
 
-		person.put("FIRST_NAME", req.getParameter("firstName"));
-		person.put("MIDDLE_NAME", req.getParameter("middleName"));
-		person.put("LAST_NAME", req.getParameter("lastName"));
-		person.put("UC_PATH_ID", req.getParameter("ucPathId"));
-		person.put("ADDRESS", req.getParameter("address"));
+		person.put("ADDR1", req.getParameter("address"));
+		person.put("BARCODE1", req.getParameter("ucPathId"));
+//		person.put("BUILDING", req.getParameter("building"));
 		person.put("CITY", req.getParameter("city"));
-		person.put("STATE", req.getParameter("state"));
-		person.put("ZIP", req.getParameter("zip"));
-		person.put("ROOM", req.getParameter("room"));
-		person.put("PHONE", req.getParameter("phoneNumber"));
+		person.put("DEPT", getDeptId(req.getParameter("deptId"), details));
 		person.put("EMAIL", req.getParameter("email"));
-		person.put("VALID_FROM", req.getParameter("startDate"));
-		person.put("VALID_TO", req.getParameter("endDate"));
-		person.put("NAME", req.getParameter("firstName") + " " + req.getParameter("lastName"));
-		person.put("FIRST", req.getParameter("firstName"));
-		person.put("LAST", req.getParameter("lastName"));
-		if (StringUtils.isNotEmpty(req.getParameter("endDate"))) {
-			person.put("EXPIRATION_DATE", "Exp: " + req.getParameter("endDate").substring(0, 10));
-		}
-		if (StringUtils.isNotEmpty(req.getParameter("ucPathId"))) {
-			if ("UCDH".equalsIgnoreCase(req.getParameter("ucPathInstitution"))) {
-				person.put("EMP_ID", req.getParameter("ucPathId"));
-			} else {
-				person.put("ALT_ID", "CMP:" + req.getParameter("ucPathId"));
-			}
-		}
-		if (StringUtils.isEmpty((String) person.get("ALT_ID"))) {
-			if (StringUtils.isNotEmpty(req.getParameter("studentId"))) {
-				person.put("ALT_ID", "STU:" + req.getParameter("studentId"));
-			} else if (StringUtils.isNotEmpty(req.getParameter("externalId")) && req.getParameter("externalId").startsWith("H0")) {
-				person.put("ALT_ID", "EXT:" + req.getParameter("externalId"));
-			} else if (StringUtils.isEmpty((String) person.get("EMP_ID"))) {
-				person.put("ALT_ID", "IAM:" + req.getParameter("id"));
-			}
-		}
-		if (StringUtils.isNotEmpty((String) person.get("EMP_ID"))) {
-			person.put("UNIQUE_KEY", (String) person.get("EMP_ID"));
-		} else {
-			person.put("UNIQUE_KEY", (String) person.get("ALT_ID"));
-		}
-		if (StringUtils.isNotEmpty(req.getParameter("title"))) {
-			String title = req.getParameter("title").trim();
-			if (title.length() > 64) {
-				if (log.isDebugEnabled()) {
-					log.debug("Truncating Title to first 64 characters: " + title);
-				}
-				title = title.substring(0, 64);
-			}
-			person.put("HR_TITLE", title);
-		}
-		person.put("HR_DEPT", req.getParameter("deptName"));
-		person.put("HR_DEPTID", req.getParameter("deptId"));
-		if (!"Y".equalsIgnoreCase(req.getParameter("isActive"))) {
-			person.put("HR_NOTES", "INACTIVE");
-		}
+		person.put("EMP", req.getParameter("ucPathId"));
+		person.put("FIRSTNAME", req.getParameter("firstName"));
+		person.put("FLDDATE880", req.getParameter("endDate"));
+		person.put("FLDNUM876", req.getParameter("studentId"));
+		person.put("FLDTEXT874", req.getParameter("externatId"));
+		person.put("FLOOR", req.getParameter("floor"));
 		person.put("IAM_ID", req.getParameter("id"));
+		person.put("LASTNAME", req.getParameter("lastName"));
+		person.put("MIDNAME", req.getParameter("middleName"));
+		person.put("NAME", req.getParameter("firstName") + " " + req.getParameter("lastName"));
+		person.put("OPHONE", req.getParameter("phoneNumber"));
+		person.put("PHONE", req.getParameter("cellNumber"));
+		person.put("SSNO", req.getParameter("ucPathId"));
+		person.put("START", req.getParameter("startDate"));
+		person.put("STATE", req.getParameter("state"));
+		person.put("TITLE", req.getParameter("title"));
+		person.put("ZIP", req.getParameter("zip"));
 		if (StringUtils.isEmpty(req.getParameter("ucPathId")) || !"UCDH".equalsIgnoreCase(req.getParameter("ucPathInstitution"))) {
 			person = processExternal(req, person, details);
-		} else {
-			person.put("SPONSOR", null);			
+//		} else {
+//			person.put("SPONSOR", null);			
 		}
 		if (log.isDebugEnabled()) {
 			log.debug("Returning new cardholder values: " + person);
@@ -584,7 +669,8 @@ public class LenelCardHolderUpdateServlet extends HttpServlet {
 		get.setHeader(HttpHeaders.ACCEPT, "application/json");
 		try {
 			get.addHeader(new BasicScheme(StandardCharsets.UTF_8).authenticate(new UsernamePasswordCredentials(serviceNowUser, serviceNowPassword), get, null));
-			HttpClient client = HttpClientProvider.getClient();
+			HttpClient client = createHttpClient_AcceptsUntrustedCerts();
+//			HttpClient client = HttpClientProvider.getClient();
 			if (log.isDebugEnabled()) {
 				log.debug("Fetching external data using url " + url);
 			}
@@ -754,24 +840,296 @@ public class LenelCardHolderUpdateServlet extends HttpServlet {
 		return iamId;
 	}
 
-	private boolean isEqual(Map<String,String> p1, Map<String,String> p2, String key) {
+	/**
+	 * <p>Returns the Lenel OnGuard Dept ID for the Tile text passed.</p>
+	 *
+	 * @param dept the cardholder's dept
+	 * @param details the JSON object containing the details of this transaction
+	 * @return the Lenel OnGuard Dept ID for the Tile text passed
+	 */
+	@SuppressWarnings("unchecked")
+	private String getDeptId(String dept, JSONObject details) {
+		String deptId = null;
+
+		if (log.isDebugEnabled()) {
+			log.debug("Searching Lenel OnGuard Dept database for Dept name \"" + dept + "\"");
+		}
+		String url = lenelServer + DEPT_FETCH_URL + dept + "%25%22";
+		HttpGet get = new HttpGet(url);
+		get.setHeader(HttpHeaders.ACCEPT, "application/json");
+		get.setHeader("Session-Token", (String) details.get("sessionToken"));
+		get.setHeader("Application-Id", lenelApplicationId);
+		JSONObject deptRequest = new JSONObject();
+		JSONObject deptResponse = new JSONObject();
+		details.put("deptRequest", deptRequest);
+		details.put("deptResponse", deptResponse);
+		deptRequest.put("url", url);
+		try {
+			HttpClient client = createHttpClient_AcceptsUntrustedCerts();
+//			HttpClient client = HttpClientProvider.getClient();
+			if (log.isDebugEnabled()) {
+				log.debug("Fetching Lenel OnGuard Dept data using url " + url);
+			}
+			HttpResponse resp = client.execute(get);
+			int rc = resp.getStatusLine().getStatusCode();
+			String jsonRespString = "";
+			JSONObject result = new JSONObject();
+			HttpEntity entity = resp.getEntity();
+			if (entity != null) {
+				jsonRespString = EntityUtils.toString(entity);
+				result = (JSONObject) JSONValue.parse(jsonRespString);
+			}
+			deptResponse.put("responseCode", rc);
+			deptResponse.put("responseString", jsonRespString);
+			deptResponse.put("responseObject", result);
+			if (log.isDebugEnabled()) {
+				log.debug("JSON response: " + result.toJSONString());
+			}
+			if (rc == 200) {
+				JSONArray records = (JSONArray) result.get("item_list");
+				if (records != null && records.size() > 0) {
+					JSONObject deptData = (JSONObject) ((JSONObject) records.get(0)).get("property_value_map");
+					deptId = deptData.get("ID") + "";
+					if (log.isDebugEnabled()) {
+						log.debug("Dept ID found for Dept name \"" + dept + "\": " + deptId);
+					}
+				} else {
+					if (log.isDebugEnabled()) {
+						log.debug("Dept ID not found for Dept name \"" + dept + "\".");
+					}
+				}
+			} else {
+				log.error("Invalid HTTP Response Code returned when searching Lenel OnGuard Dept database for Dept name \"" + dept + "\": " + rc);
+				eventService.logEvent(new Event((String) details.get("id"), "Cardholder Dept fetch error", "Invalid HTTP Response Code returned when searching Lenel OnGuard Dept database for Dept name \"" + dept + "\": " + rc, details));
+			}
+		} catch (Exception e) {
+			log.error("Exception encountered when searching Lenel OnGuard Dept database for Dept name \"" + dept + "\": " + e, e);
+			eventService.logEvent(new Event((String) details.get("id"), "Cardholder Dept fetch exception", "Exception encountered when searching Lenel OnGuard Dept database for Dept name \"" + dept + "\": " + e, details, e));
+		}
+		if (log.isDebugEnabled()) {
+			log.debug("Returning Dept ID: " + deptId);
+		}
+
+		return deptId;
+	}
+
+	/**
+	 * <p>Returns the Lenel OnGuard Title ID for the Tile text passed.</p>
+	 *
+	 * @param title the cardholder's title
+	 * @param details the JSON object containing the details of this transaction
+	 * @return the Lenel OnGuard Title ID for the Tile text passed
+	 */
+	@SuppressWarnings("unchecked")
+	private String getTitleId(String title, JSONObject details) {
+		String titleId = null;
+
+		if (log.isDebugEnabled()) {
+			log.debug("Searching Lenel OnGuard Title database for Title text \"" + title + "\"");
+		}
+		String url = lenelServer + TITLE_FETCH_URL + title.replaceAll(" ", "%20") + "%22";
+		HttpGet get = new HttpGet(url);
+		get.setHeader(HttpHeaders.ACCEPT, "application/json");
+		get.setHeader("Session-Token", (String) details.get("sessionToken"));
+		get.setHeader("Application-Id", lenelApplicationId);
+		JSONObject titleRequest = new JSONObject();
+		JSONObject titleResponse = new JSONObject();
+		details.put("titleRequest", titleRequest);
+		details.put("titleResponse", titleResponse);
+		titleRequest.put("url", url);
+		try {
+			HttpClient client = createHttpClient_AcceptsUntrustedCerts();
+//			HttpClient client = HttpClientProvider.getClient();
+			if (log.isDebugEnabled()) {
+				log.debug("Fetching Lenel OnGuard Title data using url " + url);
+			}
+			HttpResponse resp = client.execute(get);
+			int rc = resp.getStatusLine().getStatusCode();
+			String jsonRespString = "";
+			JSONObject result = new JSONObject();
+			HttpEntity entity = resp.getEntity();
+			if (entity != null) {
+				jsonRespString = EntityUtils.toString(entity);
+				result = (JSONObject) JSONValue.parse(jsonRespString);
+			}
+			titleResponse.put("responseCode", rc);
+			titleResponse.put("responseString", jsonRespString);
+			titleResponse.put("responseObject", result);
+			if (log.isDebugEnabled()) {
+				log.debug("JSON response: " + result.toJSONString());
+			}
+			if (rc == 200) {
+				JSONArray records = (JSONArray) result.get("item_list");
+				if (records != null && records.size() > 0) {
+					JSONObject titleData = (JSONObject) ((JSONObject) records.get(0)).get("property_value_map");
+					titleId = titleData.get("ID") + "";
+					if (log.isDebugEnabled()) {
+						log.debug("Title ID found for Title text \"" + title + "\": " + titleId);
+					}
+				} else {
+					if (log.isDebugEnabled()) {
+						log.debug("Title ID not found for Title text \"" + title + "\"; creating new Title record.");
+					}
+					titleId = createNewTitleId(title, details);
+				}
+			} else {
+				log.error("Invalid HTTP Response Code returned when searching Lenel OnGuard Title database for Title text \"" + title + "\": " + rc);
+				eventService.logEvent(new Event((String) details.get("id"), "Cardholder Title fetch error", "Invalid HTTP Response Code returned when searching Lenel OnGuard Title database for Title text \"" + title + "\": " + rc, details));
+			}
+		} catch (Exception e) {
+			log.error("Exception encountered when searching Lenel OnGuard Title database for Title text \"" + title + "\": " + e, e);
+			eventService.logEvent(new Event((String) details.get("id"), "Cardholder Title fetch exception", "Exception encountered when searching Lenel OnGuard Title database for Title text \"" + title + "\": " + e, details, e));
+		}
+		if (log.isDebugEnabled()) {
+			log.debug("Returning Title ID: " + titleId);
+		}
+
+		return titleId;
+	}
+
+	/**
+	 * <p>Creates a new Lenel OnGuard Title record for the Tile text passed and returns the Title ID.</p>
+	 *
+	 * @param title the cardholder's title
+	 * @param details the JSON object containing the details of this transaction
+	 * @return the Lenel OnGuard Title ID for the Tile text passed
+	 */
+	@SuppressWarnings("unchecked")
+	private String createNewTitleId(String title, JSONObject details) {
+		String titleId = null;
+
+		if (log.isDebugEnabled()) {
+			log.debug("Creating a new Lenel OnGuard Title record for Title text \"" + title + "\"");
+		}
+
+		// create HttpPost
+		String url = lenelServer + UPDATE_URL;
+		HttpPost post = new HttpPost(url);
+		post.setHeader(HttpHeaders.ACCEPT, "application/json");
+		post.setHeader(HttpHeaders.CONTENT_TYPE, "application/json");
+		post.setHeader("Session-Token", (String) details.get("sessionToken"));
+		post.setHeader("Application-Id", lenelApplicationId);
+
+		// build JSON object to post
+		JSONObject insertData = new JSONObject();
+		JSONObject titleData = new JSONObject();
+		titleData.put("Name", title);
+		insertData.put("type_name", "Lnl_TITLE");
+		insertData.put("property_value_map", titleData);
+		if (log.isDebugEnabled()) {
+			log.debug("JSON object to POST: " + insertData.toJSONString());
+		}
+		JSONObject titleInsertRequest = new JSONObject();
+		JSONObject titleInsertResponse = new JSONObject();
+		details.put("titleInsertRequest", titleInsertRequest);
+		details.put("titleInsertResponse", titleInsertResponse);
+		titleInsertRequest.put("url", url);
+		titleInsertRequest.put("titleInsertData", insertData);
+
+		// post parameters
+		try {
+			post.addHeader(new BasicScheme(StandardCharsets.UTF_8).authenticate(new UsernamePasswordCredentials(serviceNowUser, serviceNowPassword), post, null));
+			post.setEntity(new StringEntity(insertData.toJSONString()));
+			HttpClient client = createHttpClient_AcceptsUntrustedCerts();
+//			HttpClient client = HttpClientProvider.getClient();
+			if (log.isDebugEnabled()) {
+				log.debug("Posting JSON data to " + url);
+			}
+			HttpResponse resp = client.execute(post);
+			int rc = resp.getStatusLine().getStatusCode();
+			String jsonRespString = "";
+			JSONObject result = new JSONObject();
+			HttpEntity entity = resp.getEntity();
+			if (entity != null) {
+				jsonRespString = EntityUtils.toString(entity);
+				result = (JSONObject) JSONValue.parse(jsonRespString);
+			}
+			titleInsertResponse.put("responseCode", rc);
+			titleInsertResponse.put("responseString", jsonRespString);
+			titleInsertResponse.put("responseObject", result);
+			if (log.isDebugEnabled()) {
+				log.debug("JSON response: " + result.toJSONString());
+			}
+			if (rc == 200 || rc == 201) {
+				if (log.isDebugEnabled()) {
+					log.debug("HTTP response code from post: " + rc);
+					log.debug("JSON response: " + jsonRespString);
+				} 
+				titleData = (JSONObject) result.get("property_value_map");
+				if (titleData != null) {
+					titleId = titleData.get("ID") + "";
+				}
+			} else {
+				if (log.isDebugEnabled()) {
+					log.debug("Invalid HTTP Response Code returned when inserting new Title record: " + rc);
+					log.debug("JSON response: " + jsonRespString);
+				}
+				eventService.logEvent(new Event((String) details.get("id"), "Title insert error", "Invalid HTTP Response Code returned when inserting new Title: " + rc, details));
+			}
+		} catch (Exception e) {
+			log.debug("Exception occured when attempting to insert new Title: " + e, e);
+			eventService.logEvent(new Event((String) details.get("id"), "Title insert exception", "Exception occured when attempting to insert new Title: " + e, details, e));
+		}
+
+		return titleId;
+	}
+
+	@SuppressWarnings("deprecation")
+	public HttpClient createHttpClient_AcceptsUntrustedCerts() throws KeyManagementException, NoSuchAlgorithmException, KeyStoreException {
+	    HttpClientBuilder b = HttpClientBuilder.create();
+	 
+	    // setup a Trust Strategy that allows all certificates.
+	    //
+	    SSLContext sslContext = new SSLContextBuilder().loadTrustMaterial(null, new TrustStrategy() {
+	        public boolean isTrusted(X509Certificate[] arg0, String arg1) throws CertificateException {
+	            return true;
+	        }
+	    }).build();
+	    b.setSslcontext( sslContext);
+	 
+	    // don't check Hostnames, either.
+	    //      -- use SSLConnectionSocketFactory.getDefaultHostnameVerifier(), if you don't want to weaken
+	    HostnameVerifier hostnameVerifier = SSLConnectionSocketFactory.ALLOW_ALL_HOSTNAME_VERIFIER;
+	 
+	    // here's the special part:
+	    //      -- need to create an SSL Socket Factory, to use our weakened "trust strategy";
+	    //      -- and create a Registry, to register it.
+	    //
+	    SSLConnectionSocketFactory sslSocketFactory = new SSLConnectionSocketFactory(sslContext, hostnameVerifier);
+	    Registry<ConnectionSocketFactory> socketFactoryRegistry = RegistryBuilder.<ConnectionSocketFactory>create()
+	            .register("http", PlainConnectionSocketFactory.getSocketFactory())
+	            .register("https", sslSocketFactory)
+	            .build();
+	 
+	    // now, we create connection-manager using our Registry.
+	    //      -- allows multi-threaded use
+	    PoolingHttpClientConnectionManager connMgr = new PoolingHttpClientConnectionManager( socketFactoryRegistry);
+	    b.setConnectionManager( connMgr);
+	 
+	    // finally, build the HttpClient;
+	    //      -- done!
+	    HttpClient client = b.build();
+	    return client;
+	}
+
+	private boolean isEqual(JSONObject p1, JSONObject p2, String key) {
 		boolean eq = true;
 
-		String s1 = p1.get(key);
-		String s2 = p2.get(key);
-		if (StringUtils.isNotEmpty(s1)) {
-			if (StringUtils.isNotEmpty(s2)) {
+		String s1 = p1.get(key) + "";
+		String s2 = p2.get(key) + "";
+		if (StringUtils.isNotEmpty(s1) && !"null".equalsIgnoreCase(s1)) {
+			if (StringUtils.isNotEmpty(s2) && !"null".equalsIgnoreCase(s2)) {
 				eq = s1.equals(s2);
 			}
 		} else {
-			if (StringUtils.isNotEmpty(s2)) {
+			if (StringUtils.isNotEmpty(s2) && !"null".equalsIgnoreCase(s2)) {
 				eq = false;
 			}
 		}
 
 		return eq;
 	}
-
+/*
 	private String nullify(String value) {
 		String response = null;
 
@@ -784,7 +1142,7 @@ public class LenelCardHolderUpdateServlet extends HttpServlet {
 
 		return response;
 	}
-
+ */
 	/**
 	 * <p>Sends the HTTP error code and message, and logs the code and message if enabled.</p>
 	 *

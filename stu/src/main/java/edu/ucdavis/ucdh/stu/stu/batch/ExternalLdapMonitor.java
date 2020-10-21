@@ -1,13 +1,11 @@
 package edu.ucdavis.ucdh.stu.stu.batch;
 
 import java.math.BigInteger;
-import java.sql.Connection;
-import java.sql.DriverManager;
-import java.sql.ResultSet;
-import java.sql.Statement;
+import java.nio.charset.StandardCharsets;
 import java.sql.Timestamp;
 import java.util.ArrayList;
-import java.util.Date;
+import java.util.Calendar;
+import java.util.GregorianCalendar;
 import java.util.HashMap;
 import java.util.Hashtable;
 import java.util.List;
@@ -24,21 +22,35 @@ import javax.naming.directory.SearchResult;
 import org.apache.commons.lang.StringUtils;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
+import org.apache.http.HttpEntity;
+import org.apache.http.HttpHeaders;
+import org.apache.http.HttpResponse;
+import org.apache.http.auth.UsernamePasswordCredentials;
+import org.apache.http.client.HttpClient;
+import org.apache.http.client.methods.HttpGet;
+import org.apache.http.client.methods.HttpPut;
+import org.apache.http.entity.StringEntity;
+import org.apache.http.impl.auth.BasicScheme;
+import org.apache.http.util.EntityUtils;
+import org.json.simple.JSONArray;
+import org.json.simple.JSONObject;
+import org.json.simple.JSONValue;
 
 import edu.ucdavis.ucdh.stu.core.batch.SpringBatchJob;
 import edu.ucdavis.ucdh.stu.core.utils.BatchJobService;
 import edu.ucdavis.ucdh.stu.core.utils.BatchJobServiceStatistic;
+import edu.ucdavis.ucdh.stu.core.utils.HttpClientProvider;
+import edu.ucdavis.ucdh.stu.snutil.beans.Event;
+import edu.ucdavis.ucdh.stu.snutil.util.EventService;
 
 /**
  * <p>Looks for password change dates and last login dates in A/D for new Externals.</p>
  */
 public class ExternalLdapMonitor implements SpringBatchJob {
 	private static final long DIFF_NET_JAVA_FOR_DATES = 11644473600000L + 24 * 60 * 60 * 1000;
-	private static final String SEARCH_SQL = "SELECT AD_ID, ACCOUNT_CLAIMED, ACCOUNT_USED, SYSMODTIME, SYSMODCOUNT, SYSMODUSER FROM UCDEXTERNALM1 WHERE ACTIVE_IND='t' AND REQUIRE_LAN='t' AND AD_ID IS NOT NULL AND EXT_RESTID LIKE 'H0%' AND (ACCOUNT_CLAIMED IS NULL OR ACCOUNT_USED IS NULL)";
+	private static final String FETCH_URL = "/api/now/table/x_ucdhs_identity_s_identity?sysparm_query=active%3Dtrue%5Elan_required%3Dtrue%5Euser_nameISNOTEMPTY%5Eexternal_idSTARTSWITHH00%5Ea_d_account_claimedISEMPTY%5EORa_d_account_usedISEMPTY&sysparm_display_value=false&sysparm_fields=sys_id%2Cuser_name%2Ca_d_account_claimed%2Ca_d_account_used";
+	private static final String UPDATE_URL = "/api/now/table/x_ucdhs_identity_s_identity/";
 	private final Log log = LogFactory.getLog(getClass().getName());
-	private Connection conn = null;
-	private Statement stmt = null;
-	private ResultSet rs = null;
 	private Hashtable<String,String> env = null;
 	private String contextFactory = null;
 	DirContext ctx = null;
@@ -49,18 +61,21 @@ public class ExternalLdapMonitor implements SpringBatchJob {
 	private String securityPrin = null;
 	private String securityCred = null;
 	private String standardSearch = null;
-	private String smDriver = null;
-	private String smURL = null;
-	private String smUser = null;
-	private String smPassword = null;
+	private String serviceNowServer = null;
+	private String serviceNowUser = null;
+	private String serviceNowPassword = null;
+	private EventService eventService = null;
+	private JSONArray users = null;
 	private int recordsRead = 0;
 	private int adAccountsFound = 0;
 	private int recordsUpdated = 0;
 
 	public List<BatchJobServiceStatistic> run(String[] args, int batchJobInstanceId) throws Exception {
 		externalBegin();
-		while (rs.next()) {
-			external();
+		if (users != null && users.size() > 0) {
+			for (int i=0; i<users.size(); i++) {
+				external((JSONObject) users.get(i));
+			}
 		}
 		return externalEnd();
 	}
@@ -111,29 +126,23 @@ public class ExternalLdapMonitor implements SpringBatchJob {
 				log.info("searchOption[" + i + "] = " + searchOption[i]);
 			}
 		}		
-		// verify smDriver
-		if (StringUtils.isEmpty(smDriver)) {
-			throw new IllegalArgumentException("Required property \"smDriver\" missing or invalid.");
+		// verify serviceNowServer
+		if (StringUtils.isEmpty(serviceNowServer)) {
+			throw new IllegalArgumentException("Required property \"serviceNowServer\" missing or invalid.");
 		} else {
-			log.info("smDriver = " + smDriver);
+			log.info("serviceNowServer = " + serviceNowServer);
 		}
-		// verify smUser
-		if (StringUtils.isEmpty(smUser)) {
-			throw new IllegalArgumentException("Required property \"smUser\" missing or invalid.");
+		// verify serviceNowUser
+		if (StringUtils.isEmpty(serviceNowUser)) {
+			throw new IllegalArgumentException("Required property \"serviceNowUser\" missing or invalid.");
 		} else {
-			log.info("smUser = " + smUser);
+			log.info("serviceNowUser = " + serviceNowUser);
 		}
-		// verify smPassword
-		if (StringUtils.isEmpty(smPassword)) {
-			throw new IllegalArgumentException("Required property \"smPassword\" missing or invalid.");
+		// verify serviceNowPassword
+		if (StringUtils.isEmpty(serviceNowPassword)) {
+			throw new IllegalArgumentException("Required property \"serviceNowPassword\" missing or invalid.");
 		} else {
-			log.info("smPassword = ********");
-		}
-		// verify smURL
-		if (StringUtils.isEmpty(smURL)) {
-			throw new IllegalArgumentException("Required property \"smURL\" missing or invalid.");
-		} else {
-			log.info("smURL = " + smURL);
+			log.info("serviceNowPassword = **********");
 		}
 
 		log.info(" ");
@@ -151,19 +160,11 @@ public class ExternalLdapMonitor implements SpringBatchJob {
 		ctls = new SearchControls();
 		ctls.setSearchScope(SearchControls.SUBTREE_SCOPE);
 
-		// connect to ServiceManager database
-		Class.forName(smDriver);
-		conn = DriverManager.getConnection(smURL, smUser, smPassword);
-		stmt = conn.createStatement(ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_UPDATABLE);
-		rs = stmt.executeQuery(SEARCH_SQL);
+		// fetch external users
+		loadExternalUsers();
 	}
 
 	private List<BatchJobServiceStatistic> externalEnd() throws Exception {
-		// close database connection
-		stmt.close();
-		rs.close();
-		conn.close();
-
 		// prepare job statistics
 		List<BatchJobServiceStatistic> stats = new ArrayList<BatchJobServiceStatistic>();
 		if (recordsRead > 0) {
@@ -183,29 +184,72 @@ public class ExternalLdapMonitor implements SpringBatchJob {
 		return stats;
 	}
 
-	private void external() throws Exception {
+	@SuppressWarnings("unchecked")
+	private void external(JSONObject external) throws Exception {
 		recordsRead++;
-		String adId = rs.getString("AD_ID");
-		int sysmodcount = rs.getInt("SYSMODCOUNT");
-		Timestamp accountClaimed = rs.getTimestamp("ACCOUNT_CLAIMED");
+		String sysId = (String) external.get("sys_id");
+		String adId = (String) external.get("user_name");
+		String accountClaimed = (String) external.get("a_d_account_claimed");
 		if (log.isDebugEnabled()) {
 			log.debug("Processing user " + adId);
 		}
 		Map<String,Timestamp> ldapData = getLdapData(adId);
-		if (ldapData.get("ACCOUNT_USED") != null || (accountClaimed == null && ldapData.get("ACCOUNT_CLAIMED") != null)) {
-			if (accountClaimed == null && ldapData.get("ACCOUNT_CLAIMED") != null) {
-				rs.updateTimestamp("ACCOUNT_CLAIMED", ldapData.get("ACCOUNT_CLAIMED"));
+		if (ldapData.get("ACCOUNT_USED") != null || (StringUtils.isEmpty(accountClaimed) && ldapData.get("ACCOUNT_CLAIMED") != null)) {
+			String newAccountClaimed = null;
+			String newAccountUsed = null;
+			if (StringUtils.isEmpty(accountClaimed) && ldapData.get("ACCOUNT_CLAIMED") != null) {
+				newAccountClaimed = ldapData.get("ACCOUNT_CLAIMED").toString();
 			}
 			if (ldapData.get("ACCOUNT_USED") != null) {
-				rs.updateTimestamp("ACCOUNT_USED", ldapData.get("ACCOUNT_USED"));
+				newAccountUsed = ldapData.get("ACCOUNT_USED").toString();
 			}
-			rs.updateString("SYSMODUSER", "extldap");
-			rs.updateTimestamp("SYSMODTIME", new Timestamp(new Date().getTime()));
-			rs.updateInt("SYSMODCOUNT", sysmodcount++);
-			rs.updateRow();
-			recordsUpdated++;
+			String url = serviceNowServer + UPDATE_URL + sysId;
+			HttpPut put = new HttpPut(url);
+			put.setHeader(HttpHeaders.ACCEPT, "application/json");
+			put.setHeader(HttpHeaders.CONTENT_TYPE, "application/json");
+			JSONObject updateData = new JSONObject();
+			if (StringUtils.isNotEmpty(newAccountClaimed)) {
+				updateData.put("a_d_account_claimed", newAccountClaimed);
+			}
+			if (StringUtils.isNotEmpty(newAccountUsed)) {
+				updateData.put("a_d_account_used", newAccountUsed);
+			}
 			if (log.isDebugEnabled()) {
-				log.debug(adId + " successfully updated.");
+				log.debug("JSON object to PUT: " + updateData.toJSONString());
+			}
+			try {
+				put.addHeader(new BasicScheme(StandardCharsets.UTF_8).authenticate(new UsernamePasswordCredentials(serviceNowUser, serviceNowPassword), put, null));
+				put.setEntity(new StringEntity(updateData.toJSONString()));
+				HttpClient client = HttpClientProvider.getClient();
+				if (log.isDebugEnabled()) {
+					log.debug("Putting JSON update to " + url);
+				}
+				HttpResponse resp = client.execute(put);
+				int rc = resp.getStatusLine().getStatusCode();
+				if (rc == 200) {
+					recordsUpdated++;
+					if (log.isDebugEnabled()) {
+						log.debug("HTTP response code from put: " + rc);
+						log.debug(adId + " successfully updated.");
+					}
+				} else {
+					if (log.isDebugEnabled()) {
+						log.debug("Invalid HTTP Response Code returned when updating sys_id " + sysId + ": " + rc);
+					}
+					eventService.logEvent(new Event(adId, "External update error", "Invalid HTTP Response Code returned when updating sys_id " + sysId + ": " + rc));
+				}
+				if (log.isDebugEnabled()) {
+					String jsonRespString = "";
+					HttpEntity entity = resp.getEntity();
+					if (entity != null) {
+						jsonRespString = EntityUtils.toString(entity);
+					}
+					JSONObject result = (JSONObject) JSONValue.parse(jsonRespString);
+					log.debug("JSON response: " + result.toJSONString());
+				}
+			} catch (Exception e) {
+				log.debug("Exception occured when attempting to update External with AD Account " + adId + ": " + e);
+				eventService.logEvent(new Event(adId, "User update exception", "Exception occured when attempting to update External with AD Account " + adId + ": " + e, null, e));
 			}
 		}
 	}
@@ -246,6 +290,9 @@ public class ExternalLdapMonitor implements SpringBatchJob {
 		long adTimeUnits = Long.parseLong((String) attr.get());
 		if (adTimeUnits > 0) {
 			long milliseconds = (adTimeUnits / 10000) - DIFF_NET_JAVA_FOR_DATES;
+			Calendar calendar = new GregorianCalendar();
+			calendar.set(Calendar.MILLISECOND, (int) milliseconds);
+			milliseconds = milliseconds - (calendar.get(Calendar.ZONE_OFFSET) + calendar.get(Calendar.DST_OFFSET));
 			ts = new Timestamp(milliseconds);
 			if (log.isDebugEnabled()) {
 				log.debug("Date/Time conversion: attr=" + attr + "; adTimeUnits=" + adTimeUnits + "; milliseconds=" + milliseconds + "; ts=" + ts);
@@ -253,6 +300,45 @@ public class ExternalLdapMonitor implements SpringBatchJob {
 		}
 
 		return ts;
+	}
+
+	/**
+	 * <p>Loads the list of ServiceNow sys_ids for all IT departments.</p>
+	 *
+	 */
+	private void loadExternalUsers() {
+		try {
+			String url = serviceNowServer + FETCH_URL;
+			if (log.isDebugEnabled()) {
+				log.debug("Fetching ServiceNow External Users using URL " + url);
+			}
+			HttpGet get = new HttpGet(url);
+			get.addHeader(new BasicScheme(StandardCharsets.UTF_8).authenticate(new UsernamePasswordCredentials(serviceNowUser, serviceNowPassword), get, null));
+			get.setHeader(HttpHeaders.ACCEPT, "application/json");
+			HttpClient client = HttpClientProvider.getClient();
+			HttpResponse response = client.execute(get);
+			int rc = response.getStatusLine().getStatusCode();
+			if (log.isDebugEnabled()) {
+				log.debug("HTTP response code: " + rc);
+			}
+			String resp = "";
+			HttpEntity entity = response.getEntity();
+			if (entity != null) {
+				resp = EntityUtils.toString(entity);
+			}
+			if (rc != 200) {
+				if (log.isDebugEnabled()) {
+					log.debug("Invalid HTTP Response Code returned when fetching ServiceNow External Users: " + rc);
+				}
+			}
+			JSONObject json = (JSONObject) JSONValue.parse(resp);
+			if (json != null) {
+				users = (JSONArray) json.get("result");
+			}
+		} catch (Exception e) {
+			log.error("Exception encountered when fetching ServiceNow External Users: " + e, e);
+			eventService.logEvent(new Event("External User List", "External User fetch exception", "Exception encountered when fetching ServiceNow External Users: " + e, null, e));
+		}
 	}
 
 	/**
@@ -297,31 +383,19 @@ public class ExternalLdapMonitor implements SpringBatchJob {
 		this.standardSearch = standardSearch;
 	}
 
-	/**
-	 * @param smDriver the smDriver to set
-	 */
-	public void setSmDriver(String smDriver) {
-		this.smDriver = smDriver;
+	public void setServiceNowServer(String serviceNowServer) {
+		this.serviceNowServer = serviceNowServer;
 	}
 
-	/**
-	 * @param smURL the smURL to set
-	 */
-	public void setSmURL(String smURL) {
-		this.smURL = smURL;
+	public void setServiceNowUser(String serviceNowUser) {
+		this.serviceNowUser = serviceNowUser;
 	}
 
-	/**
-	 * @param smUser the smUser to set
-	 */
-	public void setSmUser(String smUser) {
-		this.smUser = smUser;
+	public void setServiceNowPassword(String serviceNowPassword) {
+		this.serviceNowPassword = serviceNowPassword;
 	}
 
-	/**
-	 * @param smPassword the smPassword to set
-	 */
-	public void setSmPassword(String smPassword) {
-		this.smPassword = smPassword;
+	public void setEventService(EventService eventService) {
+		this.eventService = eventService;
 	}
 }
