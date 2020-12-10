@@ -321,6 +321,18 @@ public class CardHolderUpdateServlet extends HttpServlet {
 					log.debug("Retaining existing barcode value: " + newPerson.get("BARCODE"));
 				}
 			}
+			if (StringUtils.isNotEmpty(oldPerson.get("NAME"))) {
+				newPerson.put("NAME", oldPerson.get("NAME"));
+				if (log.isDebugEnabled()) {
+					log.debug("Retaining existing name value: " + newPerson.get("NAME"));
+				}
+			}
+			if (StringUtils.isNotEmpty(oldPerson.get("DEGREES"))) {
+				newPerson.put("DEGREES", oldPerson.get("DEGREES"));
+				if (log.isDebugEnabled()) {
+					log.debug("Retaining existing degrees value: " + newPerson.get("DEGREES"));
+				}
+			}
 			if (StringUtils.isEmpty(newPerson.get("HR_DEPTID"))) {
 				newPerson.put("HR_DEPT", oldPerson.get("HR_DEPT"));
 				newPerson.put("HR_DEPTID", oldPerson.get("HR_DEPTID"));

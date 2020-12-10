@@ -10,6 +10,9 @@ import java.security.cert.X509Certificate;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
@@ -60,7 +63,8 @@ import edu.ucdavis.ucdh.stu.snutil.util.EventService;
 public class LenelCardHolderUpdateServlet extends HttpServlet {
 	private static final long serialVersionUID = 1;
 	private static final String AUTH_URL = "/api/access/onguard/openaccess/authentication?version=1.0";
-	private static final String FETCH_URL = "/api/access/onguard/openaccess/instances?version=1.0&type_name=Lnl_Cardholder&filter=IAM_ID%3D";
+	private static final String FETCH_URL = "/api/access/onguard/openaccess/instances?version=1.0&type_name=Lnl_Cardholder&filter=IAM_ID%3D%22";
+	private static final String FETCH_URL2 = "/api/access/onguard/openaccess/instances?version=1.0&type_name=Lnl_Cardholder&filter=SSNO%3D%22";
 	private static final String DEPT_FETCH_URL = "/api/access/onguard/openaccess/instances?version=1.0&type_name=Lnl_DEPT&filter=Name%20like%20%22";
 	private static final String TITLE_FETCH_URL = "/api/access/onguard/openaccess/instances?version=1.0&type_name=Lnl_TITLE&filter=Name%3D%22";
 	private static final String UPDATE_URL = "/api/access/onguard/openaccess/instances?version=1.0";
@@ -283,7 +287,6 @@ public class LenelCardHolderUpdateServlet extends HttpServlet {
 	 * <p>Returns the card holder data on file in the card holder database, if present.</p>
 	 *
 	 * @param id the IAM ID of the person
-	 * @param ucPathId the UCPath ID of the person
 	 * @param details the JSON object containing the details of this transaction
 	 * @return the cardholder's data from the card key system
 	 */
@@ -294,7 +297,89 @@ public class LenelCardHolderUpdateServlet extends HttpServlet {
 		if (log.isDebugEnabled()) {
 			log.debug("Searching card key database for IAM ID #" + id + " ...");
 		}
-		String url = lenelServer + FETCH_URL + id;
+		String url = lenelServer + FETCH_URL + id + "%22";
+		HttpGet get = new HttpGet(url);
+		get.setHeader(HttpHeaders.ACCEPT, "application/json");
+		get.setHeader("Session-Token", (String) details.get("sessionToken"));
+		get.setHeader("Application-Id", lenelApplicationId);
+		JSONObject fetchRequest = new JSONObject();
+		JSONObject fetchResponse = new JSONObject();
+		details.put("fetchRequest", fetchRequest);
+		details.put("fetchResponse", fetchResponse);
+		fetchRequest.put("url", url);
+		try {
+			HttpClient client = createHttpClient_AcceptsUntrustedCerts();
+//			HttpClient client = HttpClientProvider.getClient();
+			if (log.isDebugEnabled()) {
+				log.debug("Fetching cardholder data using url " + url);
+			}
+			HttpResponse resp = client.execute(get);
+			int rc = resp.getStatusLine().getStatusCode();
+			String jsonRespString = "";
+			JSONObject result = new JSONObject();
+			HttpEntity entity = resp.getEntity();
+			if (entity != null) {
+				jsonRespString = EntityUtils.toString(entity);
+				result = (JSONObject) JSONValue.parse(jsonRespString);
+			}
+			fetchResponse.put("responseCode", rc);
+			fetchResponse.put("responseString", jsonRespString);
+			fetchResponse.put("responseObject", result);
+			if (log.isDebugEnabled()) {
+				log.debug("JSON response: " + result.toJSONString());
+			}
+			if (rc == 200) {
+				String empId = (String) ((JSONObject) details.get("person")).get("SSNO");
+				JSONArray records = (JSONArray) result.get("item_list");
+				if (records != null && records.size() > 0) {
+					person = (JSONObject) ((JSONObject) records.get(0)).get("property_value_map");
+					if (records.size() > 1) {
+						for (int i=0; i<records.size(); i++) {
+							JSONObject thisPerson = (JSONObject) ((JSONObject) records.get(i)).get("property_value_map");
+							if (thisPerson.get("SSNO") != null && thisPerson.get("SSNO").equals(empId)) {
+								person = thisPerson;
+							}
+						}
+					}
+					if (log.isDebugEnabled()) {
+						log.debug("Cardholder found for IAM ID " + id + ": " + person.toJSONString());
+					}
+				} else {
+					if (log.isDebugEnabled()) {
+						log.debug("Cardholder not found on lenel for IAM ID " + id);
+					}
+					person = fetchCardholderByEmpId(empId, details);
+				}
+			} else {
+				log.error("Invalid HTTP Response Code returned when fetching Cardholder data for IAM ID " + id + ": " + rc);
+				eventService.logEvent(new Event(id, "Cardholder fetch error", "Invalid HTTP Response Code returned when fetching Cardholder data for IAM ID " + id + ": " + rc, details));
+			}
+		} catch (Exception e) {
+			log.error("Exception encountered when fetching Cardholder data for IAM ID " + id + ": " + e, e);
+			eventService.logEvent(new Event(id, "Cardholder fetch exception", "Exception encountered when fetching Cardholder data for IAM ID " + id + ": " + e, details, e));
+		}
+		if (log.isDebugEnabled() && person != null) {
+			log.debug("Returning existing cardholder: " + person.toJSONString());
+		}
+
+		return person;
+	}
+
+	/**
+	 * <p>Returns the card holder data on file in the card holder database, if present.</p>
+	 *
+	 * @param empId the Employee ID of the person
+	 * @param details the JSON object containing the details of this transaction
+	 * @return the cardholder's data from the card key system
+	 */
+	@SuppressWarnings("unchecked")
+	private JSONObject fetchCardholderByEmpId(String empId, JSONObject details) {
+		JSONObject person = null;
+
+		if (log.isDebugEnabled()) {
+			log.debug("Searching card key database for Employee ID #" + empId + " ...");
+		}
+		String url = lenelServer + FETCH_URL2 + empId + "%22";
 		HttpGet get = new HttpGet(url);
 		get.setHeader(HttpHeaders.ACCEPT, "application/json");
 		get.setHeader("Session-Token", (String) details.get("sessionToken"));
@@ -330,20 +415,20 @@ public class LenelCardHolderUpdateServlet extends HttpServlet {
 				if (records != null && records.size() > 0) {
 					person = (JSONObject) ((JSONObject) records.get(0)).get("property_value_map");
 					if (log.isDebugEnabled()) {
-						log.debug("Cardholder found for IAM ID " + id + ": " + person.toJSONString());
+						log.debug("Cardholder found for Employee ID #" + empId + ": " + person.toJSONString());
 					}
 				} else {
 					if (log.isDebugEnabled()) {
-						log.debug("Cardholder not found on lenel for IAM ID " + id);
+						log.debug("Cardholder not found on lenel for Employee ID #" + empId);
 					}
 				}
 			} else {
-				log.error("Invalid HTTP Response Code returned when fetching Cardholder data for IAM ID " + id + ": " + rc);
-				eventService.logEvent(new Event(id, "Cardholder fetch error", "Invalid HTTP Response Code returned when fetching Cardholder data for IAM ID " + id + ": " + rc, details));
+				log.error("Invalid HTTP Response Code returned when fetching Cardholder data for Employee ID #" + empId + ": " + rc);
+				eventService.logEvent(new Event(empId, "Cardholder fetch error", "Invalid HTTP Response Code returned when fetching Cardholder data for Employee ID #" + empId + ": " + rc, details));
 			}
 		} catch (Exception e) {
-			log.error("Exception encountered when fetching Cardholder data for IAM ID " + id + ": " + e, e);
-			eventService.logEvent(new Event(id, "Cardholder fetch exception", "Exception encountered when fetching Cardholder data for IAM ID " + id + ": " + e, details, e));
+			log.error("Exception encountered when fetching Cardholder data for Employee ID #" + empId + ": " + e, e);
+			eventService.logEvent(new Event(empId, "Cardholder fetch exception", "Exception encountered when fetching Cardholder data for Employee ID #" + empId + ": " + e, details, e));
 		}
 		if (log.isDebugEnabled() && person != null) {
 			log.debug("Returning existing cardholder: " + person.toJSONString());
@@ -363,21 +448,21 @@ public class LenelCardHolderUpdateServlet extends HttpServlet {
 		boolean unchanged = false;
 
 		if (isEqual(oldPerson, person, "ADDR1") &&
-	 			isEqual(oldPerson, person, "BARCODE1") &&
 	 			isEqual(oldPerson, person, "CITY") &&
 	 			isEqual(oldPerson, person, "DEPT") &&
 	 			isEqual(oldPerson, person, "EMAIL") &&
 	 			isEqual(oldPerson, person, "EMP") &&
 	 			isEqual(oldPerson, person, "FIRSTNAME") &&
 	 			isEqual(oldPerson, person, "FLOOR") &&
+	 			isEqual(oldPerson, person, "HR_TITLE") &&
+	 			isEqual(oldPerson, person, "HR_DEPT") &&
+	 			isEqual(oldPerson, person, "HR_DEPT_ID") &&
 	 			isEqual(oldPerson, person, "IAM_ID") &&
 	 			isEqual(oldPerson, person, "ID") &&
 	 			isEqual(oldPerson, person, "LASTNAME") &&
 	 			isEqual(oldPerson, person, "MIDNAME") &&
-	 			isEqual(oldPerson, person, "NAME") &&
 	 			isEqual(oldPerson, person, "OPHONE") &&
 	 			isEqual(oldPerson, person, "PHONE") &&
-	 			isEqual(oldPerson, person, "SSNO") &&
 	 			isEqual(oldPerson, person, "STATE") &&
 	 			isEqual(oldPerson, person, "ZIP")) {
 			unchanged = true;
@@ -491,6 +576,13 @@ public class LenelCardHolderUpdateServlet extends HttpServlet {
 			log.debug("Updating person " + newPerson.get("IAM_ID"));
 		}
 
+		// remove fields that should not be updated
+		newPerson.remove("BARCODE1");
+		newPerson.remove("FULL_NAME");
+		newPerson.remove("TITLE1");
+		newPerson.remove("TITLE2");
+		newPerson.remove("TITLE3");
+
 		// fix Title
 		String title = (String) newPerson.get("TITLE");
 		if (StringUtils.isEmpty(title)) {
@@ -593,18 +685,21 @@ public class LenelCardHolderUpdateServlet extends HttpServlet {
 		person.put("EMAIL", req.getParameter("email"));
 		person.put("EMP", req.getParameter("ucPathId"));
 		person.put("FIRSTNAME", req.getParameter("firstName"));
-		person.put("FLDDATE880", req.getParameter("endDate"));
-		person.put("FLDNUM876", req.getParameter("studentId"));
-		person.put("FLDTEXT874", req.getParameter("externatId"));
+		person.put("END_DATE", fixDate(req.getParameter("endDate")));
+		person.put("STUDENT_NUMBER", req.getParameter("studentId"));
+		person.put("HEALTH_ID", req.getParameter("externalId"));
 		person.put("FLOOR", req.getParameter("floor"));
+		person.put("HR_TITLE", req.getParameter("title"));
+		person.put("HR_DEPT", req.getParameter("deptName"));
+		person.put("HR_DEPT_ID", req.getParameter("deptId"));
 		person.put("IAM_ID", req.getParameter("id"));
 		person.put("LASTNAME", req.getParameter("lastName"));
 		person.put("MIDNAME", req.getParameter("middleName"));
-		person.put("NAME", req.getParameter("firstName") + " " + req.getParameter("lastName"));
+		person.put("FULL_NAME", req.getParameter("firstName") + " " + req.getParameter("lastName"));
 		person.put("OPHONE", req.getParameter("phoneNumber"));
 		person.put("PHONE", req.getParameter("cellNumber"));
 		person.put("SSNO", req.getParameter("ucPathId"));
-		person.put("START", req.getParameter("startDate"));
+		person.put("START_DATE", fixDate(req.getParameter("startDate")));
 		person.put("STATE", req.getParameter("state"));
 		person.put("TITLE", req.getParameter("title"));
 		person.put("ZIP", req.getParameter("zip"));
@@ -631,6 +726,7 @@ public class LenelCardHolderUpdateServlet extends HttpServlet {
 	private JSONObject processExternal(HttpServletRequest req, JSONObject person, JSONObject details) {
 		if (includeExternals) {
 			if (activeBadgeGrant((String) person.get("IAM_ID"), details)) {
+				person.put("SSNO", req.getParameter("externalId"));
 				person.put("SPONSOR", getUcpathId(req.getParameter("supervisor"), details));
 				if (StringUtils.isEmpty((String) person.get("SPONSOR"))) {
 					person.put("SPONSOR", getUcpathId(req.getParameter("manager"), details));
@@ -851,63 +947,69 @@ public class LenelCardHolderUpdateServlet extends HttpServlet {
 	private String getDeptId(String dept, JSONObject details) {
 		String deptId = null;
 
-		if (log.isDebugEnabled()) {
-			log.debug("Searching Lenel OnGuard Dept database for Dept name \"" + dept + "\"");
-		}
-		String url = lenelServer + DEPT_FETCH_URL + dept + "%25%22";
-		HttpGet get = new HttpGet(url);
-		get.setHeader(HttpHeaders.ACCEPT, "application/json");
-		get.setHeader("Session-Token", (String) details.get("sessionToken"));
-		get.setHeader("Application-Id", lenelApplicationId);
-		JSONObject deptRequest = new JSONObject();
-		JSONObject deptResponse = new JSONObject();
-		details.put("deptRequest", deptRequest);
-		details.put("deptResponse", deptResponse);
-		deptRequest.put("url", url);
-		try {
-			HttpClient client = createHttpClient_AcceptsUntrustedCerts();
-//			HttpClient client = HttpClientProvider.getClient();
+		if (StringUtils.isNotEmpty(dept)) {
 			if (log.isDebugEnabled()) {
-				log.debug("Fetching Lenel OnGuard Dept data using url " + url);
+				log.debug("Searching Lenel OnGuard Dept database for Dept name \"" + dept + "\"");
 			}
-			HttpResponse resp = client.execute(get);
-			int rc = resp.getStatusLine().getStatusCode();
-			String jsonRespString = "";
-			JSONObject result = new JSONObject();
-			HttpEntity entity = resp.getEntity();
-			if (entity != null) {
-				jsonRespString = EntityUtils.toString(entity);
-				result = (JSONObject) JSONValue.parse(jsonRespString);
-			}
-			deptResponse.put("responseCode", rc);
-			deptResponse.put("responseString", jsonRespString);
-			deptResponse.put("responseObject", result);
-			if (log.isDebugEnabled()) {
-				log.debug("JSON response: " + result.toJSONString());
-			}
-			if (rc == 200) {
-				JSONArray records = (JSONArray) result.get("item_list");
-				if (records != null && records.size() > 0) {
-					JSONObject deptData = (JSONObject) ((JSONObject) records.get(0)).get("property_value_map");
-					deptId = deptData.get("ID") + "";
-					if (log.isDebugEnabled()) {
-						log.debug("Dept ID found for Dept name \"" + dept + "\": " + deptId);
+			String url = lenelServer + DEPT_FETCH_URL + dept.replaceAll(" ", "%20") + "%25%22";
+			HttpGet get = new HttpGet(url);
+			get.setHeader(HttpHeaders.ACCEPT, "application/json");
+			get.setHeader("Session-Token", (String) details.get("sessionToken"));
+			get.setHeader("Application-Id", lenelApplicationId);
+			JSONObject deptRequest = new JSONObject();
+			JSONObject deptResponse = new JSONObject();
+			details.put("deptRequest", deptRequest);
+			details.put("deptResponse", deptResponse);
+			deptRequest.put("url", url);
+			try {
+				HttpClient client = createHttpClient_AcceptsUntrustedCerts();
+//				HttpClient client = HttpClientProvider.getClient();
+				if (log.isDebugEnabled()) {
+					log.debug("Fetching Lenel OnGuard Dept data using url " + url);
+				}
+				HttpResponse resp = client.execute(get);
+				int rc = resp.getStatusLine().getStatusCode();
+				String jsonRespString = "";
+				JSONObject result = new JSONObject();
+				HttpEntity entity = resp.getEntity();
+				if (entity != null) {
+					jsonRespString = EntityUtils.toString(entity);
+					result = (JSONObject) JSONValue.parse(jsonRespString);
+				}
+				deptResponse.put("responseCode", rc);
+				deptResponse.put("responseString", jsonRespString);
+				deptResponse.put("responseObject", result);
+				if (log.isDebugEnabled()) {
+					log.debug("JSON response: " + result.toJSONString());
+				}
+				if (rc == 200) {
+					JSONArray records = (JSONArray) result.get("item_list");
+					if (records != null && records.size() > 0) {
+						JSONObject deptData = (JSONObject) ((JSONObject) records.get(0)).get("property_value_map");
+						deptId = deptData.get("ID") + "";
+						if (log.isDebugEnabled()) {
+							log.debug("Dept ID found for Dept name \"" + dept + "\": " + deptId);
+						}
+					} else {
+						if (log.isDebugEnabled()) {
+							log.debug("Dept ID not found for Dept name \"" + dept + "\".");
+						}
 					}
 				} else {
-					if (log.isDebugEnabled()) {
-						log.debug("Dept ID not found for Dept name \"" + dept + "\".");
-					}
+					log.error("Invalid HTTP Response Code returned when searching Lenel OnGuard Dept database for Dept name \"" + dept + "\": " + rc);
+					eventService.logEvent(new Event((String) details.get("id"), "Cardholder Dept fetch error", "Invalid HTTP Response Code returned when searching Lenel OnGuard Dept database for Dept name \"" + dept + "\": " + rc, details));
 				}
-			} else {
-				log.error("Invalid HTTP Response Code returned when searching Lenel OnGuard Dept database for Dept name \"" + dept + "\": " + rc);
-				eventService.logEvent(new Event((String) details.get("id"), "Cardholder Dept fetch error", "Invalid HTTP Response Code returned when searching Lenel OnGuard Dept database for Dept name \"" + dept + "\": " + rc, details));
+			} catch (Exception e) {
+				log.error("Exception encountered when searching Lenel OnGuard Dept database for Dept name \"" + dept + "\": " + e, e);
+				eventService.logEvent(new Event((String) details.get("id"), "Cardholder Dept fetch exception", "Exception encountered when searching Lenel OnGuard Dept database for Dept name \"" + dept + "\": " + e, details, e));
 			}
-		} catch (Exception e) {
-			log.error("Exception encountered when searching Lenel OnGuard Dept database for Dept name \"" + dept + "\": " + e, e);
-			eventService.logEvent(new Event((String) details.get("id"), "Cardholder Dept fetch exception", "Exception encountered when searching Lenel OnGuard Dept database for Dept name \"" + dept + "\": " + e, details, e));
-		}
-		if (log.isDebugEnabled()) {
-			log.debug("Returning Dept ID: " + deptId);
+			if (log.isDebugEnabled()) {
+				log.debug("Returning Dept ID: " + deptId);
+			}
+		} else {
+			if (log.isDebugEnabled()) {
+				log.debug("Incoming Department ID is blank; Department search bypassed.");
+			}
 		}
 
 		return deptId;
@@ -1072,6 +1174,22 @@ public class LenelCardHolderUpdateServlet extends HttpServlet {
 		}
 
 		return titleId;
+	}
+
+	public String fixDate(String dateString) {
+		String date = null;
+
+		if (StringUtils.isNotEmpty(dateString) && dateString.length() > 9) {
+			dateString = dateString.substring(0, 10);
+			String [] parts = dateString.split("-");
+			if (parts.length == 3) {
+				LocalDateTime ldt = LocalDateTime.of(Integer.valueOf(parts[0]).intValue(), Integer.valueOf(parts[1]).intValue(), Integer.valueOf(parts[2]).intValue(), 0, 0);
+				ZonedDateTime zdt = ZonedDateTime.of(ldt, ZoneId.of("America/Los_Angeles"));
+				date = dateString + "T00:00:00" + zdt.getOffset();
+			}
+		}
+
+		return date;
 	}
 
 	@SuppressWarnings("deprecation")
